@@ -164,7 +164,7 @@ class StatsTracker:
         if save_path:
             fig.savefig(save_path)
             
-        return fig
+        fig.close()
 
 
 class TrainingLogger:
