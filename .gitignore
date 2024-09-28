@@ -2,3 +2,4 @@
 dataset_patched
 .wslvenv
 result
+__pycache__
