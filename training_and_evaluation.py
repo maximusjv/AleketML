@@ -1,9 +1,7 @@
 # Standard Library
 import io
 import copy
-from typing import Optional
 from contextlib import redirect_stdout
-import time
 import math
 
 # Third-party Libraries
@@ -18,10 +16,6 @@ from torch.utils.data import Dataset, DataLoader
 
 # Torchvision
 import torchvision.models.detection as tv_detection
-
-# Utils
-from utils import TrainingLogger
-
 
 # COCO METRICS UTILS
 def convert_to_coco_api(dataset: Dataset):
@@ -74,34 +68,16 @@ def convert_to_coco_api(dataset: Dataset):
         coco_ds.createIndex()
     return coco_ds
 
-
-def stats_dict(stats: np.ndarray):
-    """Creates a dictionary of COCO evaluation statistics.
-    Args:
-        stats: A numpy array containing COCO statistics.
-    Returns:
-        A dictionary mapping statistic names to their values.
-    """
-    # According to https://cocodataset.org/#detection-eval
-    return {
-        "AP@.50:.05:.95": stats[0],
-        "AP@0.5": stats[1],
-        "AP@0.75": stats[2],
-        "AP small": stats[3],
-        "AP medium": stats[4],
-        "AP large": stats[5],
-        "AR max=1": stats[6],
-        "AR max=10": stats[7],
-        "AR max=100": stats[8],
-        "AR small": stats[9],
-        "AR medium": stats[10],
-        "AR large": stats[11],
-    }
-
+# METRICS NAMES
+COCO_STATS_NAMES = ["AP@.50:.05:.95", "AP@0.5", "AP@0.75",
+                    "AP small", "AP medium", "AP large", "AR max=1",
+                    "AR max=10", "AR max=100", "AR small", "AR medium", "AR large"]
+LOSSES_NAMES = ["loss", "loss_classifier", "loss_box_reg", 'loss_objectness', 'loss_rpn_box_reg']
+ 
 
 class CocoEvaluator:
     """Evaluates object detection predictions using COCO metrics."""
-
+   
     def __init__(self, gt_dataset):
         """Initializes the CocoEvaluator.
         Args:
@@ -149,16 +125,15 @@ class CocoEvaluator:
         Returns:
             A dictionary of COCO evaluation statistics.
         """
-        if not self.coco_dt:
-            print("NO PREDICTIONS")
-            return stats_dict(np.zeros(12))
+        stats = np.zeros(12)
         with redirect_stdout(io.StringIO()):  # Suppress COCO output during evaluation
             coco_dt = self.coco_gt.loadRes(self.coco_dt)
             coco = COCOeval(self.coco_gt, coco_dt, iouType="bbox")
             coco.evaluate()
             coco.accumulate()
             coco.summarize()
-        return stats_dict(coco.stats)
+            stats = coco.stats
+        return {key: value for key, value in zip(COCO_STATS_NAMES, stats)}
 
 
 def filter_predictions_by_conf(predictions: list, conf_thresh: float) -> list:
@@ -184,8 +159,6 @@ def train_one_epoch(
     optimizer: optim.Optimizer,
     dataloader: DataLoader,
     device: str,
-    epoch: int,
-    logger: TrainingLogger,
 ) -> dict[str, float]:
     """Trains the model for one epoch.
     Args:
@@ -202,16 +175,11 @@ def train_one_epoch(
     model.train()
     size = len(dataloader)
     
-    loss_values = {
-        'loss': torch.zeros(size, dtype=torch.float32),
-        'loss_classifier': torch.zeros(size, dtype=torch.float32),
-        'loss_box_reg': torch.zeros(size, dtype=torch.float32),
-        'loss_objectness': torch.zeros(size, dtype=torch.float32),
-        'loss_rpn_box_reg': torch.zeros(size, dtype=torch.float32),
+    loss_values = { 
+        key: torch.zeros(size, dtype=torch.float32) for key in LOSSES_NAMES
     }
 
     for batch_num, (images, targets) in enumerate(dataloader):
-        start_time = time.time()
 
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
@@ -232,8 +200,6 @@ def train_one_epoch(
         loss.backward()
         optimizer.step()
 
-        time_elapsed = time.time() - start_time
-        logger.log_batch(batch_num, size,time_elapsed,losses, loss.item()  )
 
     for loss_name, loss_list in loss_values.items():
             loss_values[loss_name] = loss_list.mean().item()
@@ -245,8 +211,7 @@ def evaluate(
     model: tv_detection.FasterRCNN,
     dataloader: DataLoader,
     device: str,
-    logger: TrainingLogger,
-    conf_thresh: float = 0.1,
+    conf_thresh: float = 0,
 ) -> dict[str, float]:
     """Evaluates the model on a given dataloader.
     Args:
@@ -262,7 +227,6 @@ def evaluate(
     size = len(dataloader)
     model.eval()
 
-    start_time = time.time()
     coco_evaluator = CocoEvaluator(dataloader.dataset)
 
     for batch_num, (images, targets) in enumerate(dataloader):
@@ -278,8 +242,6 @@ def evaluate(
             }
             coco_evaluator.append(res)
 
-        time_elapsed = time.time() - start_time
-        logger.log_batch(batch_num, size, time_elapsed)
 
     stats = coco_evaluator.eval()
     return stats
