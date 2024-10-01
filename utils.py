@@ -164,8 +164,7 @@ class StatsTracker:
         if save_path:
             fig.savefig(save_path)
             
-        fig.close()
-
+        plt.close(fig)
 
 class TrainingLogger:
     """A logger that uses Python's logging module."""
