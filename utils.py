@@ -1,8 +1,9 @@
 # Standard Library
+import csv
 import os
 import json
+import time
 from typing import Any, Optional
-import logging
 
 # Third-party Libraries
 import PIL.Image
@@ -16,6 +17,7 @@ from torch.utils.data import Dataset
 import torchvision.transforms.v2 as v2
 import torchvision.tv_tensors as tv_tensors
 
+from training_and_evaluation import COCO_STATS_NAMES, LOSSES_NAMES
 
 # AleketDataset
 def load_annotations(file: str) -> dict[str, Any]:
@@ -147,7 +149,7 @@ class StatsTracker:
         """
         import matplotlib.pyplot as plt
 
-        fig, (ax1, ax2) = plt.subplots(2, sharex=True, figsize=(10, 8))
+        fig, (ax1, ax2) = plt.subplots(2, sharex=True, figsize=(20, 15))
         fig.suptitle("Training Statistics")
         
         loss_values = [loss_dict["loss"] for loss_dict in self.train_loss_history]
@@ -169,80 +171,56 @@ class StatsTracker:
 class TrainingLogger:
     """A logger that uses Python's logging module."""
 
-    def __init__(self, name: str, log_file: Optional[str] = None, batch_print=True) -> None:
+    def __init__(self, csv_epochs_file: Optional[str] = None) -> None:
         """
         Initializes the TrainingLogger.
         Args:
             log_file: Optional path to a log file. If provided, logs will be written to this file.
         """
-        self.logger = logging.getLogger(name)
-        self.logger.setLevel(logging.INFO)  # Set the default log level
-        self.batch_print = batch_print
-
-        # Add console handler
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.INFO)
-        ch.setFormatter(logging.Formatter("%(message)s"))
-        self.logger.addHandler(ch)
-
-        # Add file handler if log_file is provided
-        if log_file:
-            fh = logging.FileHandler(log_file)
-            fh.setLevel(logging.INFO)
-            fh.setFormatter(logging.Formatter("%(name)s - %(message)s"))
-            self.logger.addHandler(fh)
-
+        self.log_file = csv_epochs_file
+        if self.log_file:
+            self.log_file = os.path.abspath(csv_epochs_file)
+            self.log_file = os.path.abspath(csv_epochs_file)
+            os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+            if not os.path.exists(self.log_file):
+                with open(self.log_file, 'w', newline='') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(COCO_STATS_NAMES + LOSSES_NAMES)
+            
+            
+        self.time_elapsed = 0
         self.best_val_metric = None
 
-    def log_epoch_start(self, epoch: int, total_epochs: int) -> None:
-        self.logger.info(f"Epoch {epoch}/{total_epochs}")
+    def log_epoch_start(self, epoch: int, total_epochs: int, lr: float) -> None:
+        self.time_elapsed = time.time()
+        print(f"\nEpoch {epoch}/{total_epochs}; Learning rate: {lr}")
 
-    def log_batch(
-        self,
-        batch: int,
-        total_batches: int,
-        time_elapsed: Optional[float] = None,
-        losses_dict: Optional[dict] = None,
-        total_loss: Optional[float] = None,
-    ) -> None:
-        """Logs training or evaluation metrics to the logger.
-        Args:
-            batch: Current batch number.
-            total_batches: Total number of batches.
-            time_elapsed: Time elapsed for the current batch (optional).
-            losses_dict: Dictionary of individual losses (optional).
-            total_loss: Total loss value (optional).
-        """
-        if self.batch_print:
-            time_str = f" time: {time_elapsed:.2f}s" if time_elapsed is not None else ""
-            loss_msg = f"Loss: {total_loss:.4f} " if total_loss is not None else ""
-            loss_dict_str = (
-                f'loss_classifier: {losses_dict["loss_classifier"]:.4f} '
-                f'loss_box_reg: {losses_dict["loss_box_reg"]:.4f} '
-                f'loss_objectness: {losses_dict["loss_objectness"]:.4f} '
-                f'loss_rpn_box_reg: {losses_dict["loss_rpn_box_reg"]:.4f}'
-                if losses_dict is not None
-                else ""
-            )
-
-            self.logger.info(
-                f"[{batch}/{total_batches}] {loss_msg}{loss_dict_str}{time_str}"
-            )
 
     def log_eval_start(self) -> None:
-        self.logger.info("Evaluating...")
+        print("Evaluating...")
 
-    def log_epoch_end(self, epoch: int, train_loss: float, eval_metrics: dict) -> None:
-        self.logger.info(f"\nEpoch {epoch} Summary:")
-        self.logger.info(f"  Train Mean Loss: {train_loss:.4f}")
-        for metric_name, metric_value in eval_metrics.items():
-            self.logger.info(f"  Validation {metric_name}: {metric_value:.3f}")
+    def log_epoch_end(self, epoch: int, train_losses: dict[str, float], eval_coco_metrics: dict[str, float]) -> None:
+        if self.time_elapsed != 0:
+            time_elapsed = time.time() - self.time_elapsed
+            self.time_elapsed = 0
+            
+        print(f"Time: {time_elapsed}s; Epoch {epoch} Summary: ")
+        print(f"\tTrain Mean Loss: {train_losses[LOSSES_NAMES[0]]:.4f}")
+        for metric_name, metric_value in eval_coco_metrics.items():
+            print(f"\tValidation {metric_name}: {metric_value:.3f}")
 
-        if self.best_val_metric is None or eval_metrics["AP@.50:.05:.95"] > self.best_val_metric:
-            self.best_val_metric = eval_metrics["AP@.50:.05:.95"]
-            self.logger.info(f"  New Best Validation AP@.50:.05:.95: {self.best_val_metric:.3f}")
+        if self.best_val_metric is None or eval_coco_metrics[COCO_STATS_NAMES[0]] > self.best_val_metric:
+            self.best_val_metric = eval_coco_metrics[COCO_STATS_NAMES[0]]
+            print(f"\tNew Best Validation {COCO_STATS_NAMES[0]}: {self.best_val_metric:.3f}")
         else:
-            self.logger.info(f"  Best Validation AP@.50:.05:.95: {self.best_val_metric:.3f}")
+            print(f"\tBest Validation {COCO_STATS_NAMES[0]}: {self.best_val_metric:.3f}")
+        
+        if self.log_file:
+            with open(self.log_file, 'a', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                
+                writer.writerow(list(eval_coco_metrics.values()) + list(train_losses.values()))
+        
 
 
 # TRAIN AND EVAL UTILS
