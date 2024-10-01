@@ -6,6 +6,7 @@ import math
 
 # Third-party Libraries
 import numpy as np
+from tqdm import tqdm
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
@@ -179,7 +180,7 @@ def train_one_epoch(
         key: torch.zeros(size, dtype=torch.float32) for key in LOSSES_NAMES
     }
 
-    for batch_num, (images, targets) in enumerate(dataloader):
+    for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Training batches", total=size):
 
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
@@ -211,7 +212,6 @@ def evaluate(
     model: tv_detection.FasterRCNN,
     dataloader: DataLoader,
     device: str,
-    conf_thresh: float = 0,
 ) -> dict[str, float]:
     """Evaluates the model on a given dataloader.
     Args:
@@ -229,13 +229,12 @@ def evaluate(
 
     coco_evaluator = CocoEvaluator(dataloader.dataset)
 
-    for batch_num, (images, targets) in enumerate(dataloader):
+    for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Evaluating batches", total=size):
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
 
         with torch.no_grad():
             predictions = model(images)
-            predictions = filter_predictions_by_conf(predictions, conf_thresh)
             res = {
                 target["image_id"]: output
                 for target, output in zip(targets, predictions)
