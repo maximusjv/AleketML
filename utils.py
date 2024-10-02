@@ -31,7 +31,6 @@ def download_dataset(save_dir: str, patched_dataset_gdrive_id: str = ""):
     Returns:
         The path to the saved dataset directory.
     """
-    patched_dataset_gdrive_id = ""  #  FIXME: Replace with actual Google Drive ID fpr
     if not os.path.exists(save_dir):
         gdown.download(id=patched_dataset_gdrive_id, output="_temp_.zip")
         shutil.unpack_archive("_temp_.zip", save_dir)
