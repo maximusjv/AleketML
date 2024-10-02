@@ -3,15 +3,17 @@ import csv
 import os
 import json
 import time
+import shutil
 from typing import Any, Optional
 
 # Third-party Libraries
 import PIL.Image
+import gdown
 
 # PyTorch
 import torch
 from torch import nn
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader, Subset
 
 # Torchvision
 import torchvision.transforms.v2 as v2
@@ -19,21 +21,25 @@ import torchvision.tv_tensors as tv_tensors
 
 from training_and_evaluation import COCO_STATS_NAMES, LOSSES_NAMES
 
-# AleketDataset
-def load_annotations(file: str) -> dict[str, Any]:
-    """Loads annotations from a JSON file.
+# Downloads and extracts the dataset if it doesn't exist locally.
+def download_dataset(save_dir: str, patched_dataset_gdrive_id: str = ""):
+    """Downloads and extracts the dataset if it doesn't exist locally.
 
     Args:
-        file: Path to the JSON annotation file.
+        save_dir: The directory to save the dataset.
 
     Returns:
-        A dictionary containing the loaded annotations.
+        The path to the saved dataset directory.
     """
-    with open(file, "r") as annot_file:
-        dataset = json.load(annot_file)
-    return dataset
+    patched_dataset_gdrive_id = ""  #  FIXME: Replace with actual Google Drive ID fpr
+    if not os.path.exists(save_dir):
+        gdown.download(id=patched_dataset_gdrive_id, output="_temp_.zip")
+        shutil.unpack_archive("_temp_.zip", save_dir)
+        os.remove("_temp_.zip")
+    print(f"Dataset loaded from {save_dir}")
+    return save_dir
 
-
+# Aleket Dataset
 class AleketDataset(Dataset):
     """Custom dataset for Aleket images and annotations.
 
@@ -58,7 +64,11 @@ class AleketDataset(Dataset):
             transforms: Optional torchvision transforms to apply to the data.
         """
         self.img_dir = os.path.join(dataset_dir, "imgs")
-        self.dataset = load_annotations(os.path.join(dataset_dir, "dataset.json"))
+        
+        with open(os.path.join(dataset_dir, "dataset.json"), "r") as annot_file:
+            self.dataset = json.load(annot_file)
+        
+        
         self.default_transforms = v2.Compose(
             [v2.ToDtype(torch.float32, scale=True), v2.Resize(img_size)]
         )
@@ -103,7 +113,51 @@ class AleketDataset(Dataset):
         }
 
         return img, target
+    
+# Dataset split
+def split_dataset(
+    dataset: AleketDataset,
+    train_indicies: list[int],
+    val_indicies: list[int],
+    batch_size: int,
+    num_workers: int,
+) -> tuple[DataLoader, DataLoader]:
+    """Divides the dataset into training and validation sets and creates DataLoaders.
+    Args:
+        dataset: The AleketDataset to divide.
+        train_indicies: Dataset indicies to train
+        test_fraction: The fraction of the used dataset to allocate for validation.
+        batch_size: The batch size for the DataLoaders.
+        num_workers: The number of worker processes for data loading.
+    Returns:
+        A tuple containing the training DataLoader and the validation DataLoader.
+    """
 
+    def collate_fn(batch):
+        """Collates data samples into batches for the dataloader."""
+        return tuple(zip(*batch))
+
+    # Create training and validation subsets
+    train_dataset = Subset(dataset, train_indicies)
+    val_dataset = Subset(dataset, val_indicies)
+
+    # Create DataLoaders
+    train_dataloader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_fn,
+        num_workers=num_workers,
+    )
+
+    val_dataloader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        collate_fn=collate_fn,
+        num_workers=num_workers,
+    )
+
+    return train_dataloader, val_dataloader
 
 class StatsTracker:
     """Tracks and logs training statistics."""
