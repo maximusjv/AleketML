@@ -18,8 +18,9 @@ from torch.utils.data import Dataset, DataLoader
 # Torchvision
 import torchvision.models.detection as tv_detection
 
+
 # COCO METRICS UTILS
-def convert_to_coco_api(dataset: Dataset):
+def convert_to_coco(dataset: Dataset):
     """Converts a custom dataset to COCO API format.
     Args:
         dataset: The custom dataset to convert.
@@ -85,13 +86,19 @@ class CocoEvaluator:
             gt_dataset: The ground truth dataset, either a Dataset or a COCO dataset object.
         """
         if isinstance(gt_dataset, Dataset):
-            gt_dataset = convert_to_coco_api(gt_dataset)
+            gt_dataset = convert_to_coco(gt_dataset)
 
-        self.coco_gt = copy.deepcopy(gt_dataset)
+        self.coco_gt = gt_dataset
         self.coco_dt = []
         self.img_ids = set()
-
-    def append(self, predictions: list[dict]):
+        
+    def clear_detections(self):
+        """Clears the stored detection results."""
+        
+        self.coco_dt = []
+        self.img_ids = set()
+            
+    def append(self, predictions: dict[int, dict]):
         """Appends predictions to the evaluator.
         Args:
             predictions: A dictionary mapping image IDs to prediction dictionaries.
@@ -167,9 +174,6 @@ def train_one_epoch(
         optimizer: The optimizer for training.
         dataloader: The training dataloader.
         device: The device to use for training (e.g., 'cuda' or 'cpu').
-        epoch: The current epoch number.
-        print_freq: Frequency of logging (in batches).
-
     Returns:
         The average loss for the epoch.
     """
@@ -177,7 +181,7 @@ def train_one_epoch(
     size = len(dataloader)
     
     loss_values = { 
-        key: torch.zeros(size, dtype=torch.float32) for key in LOSSES_NAMES
+        key: 0 for key in LOSSES_NAMES
     }
 
     for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Training batches", total=size):
@@ -188,12 +192,11 @@ def train_one_epoch(
         losses = model(images, targets)
         loss = sum(loss for loss in losses.values())
         
+        loss_values['loss'] += loss.item()
         for loss_name, value in losses.items():
-            loss_values[loss_name][batch_num] = value
+            loss_values[loss_name] += value.item()
             
-        loss_values['loss'][batch_num] = loss
-
-        if not math.isfinite(loss):
+        if not math.isfinite(loss.item()):
             print(f"Loss is {loss.item()}, stopping training")
             raise Exception("Loss is infinite")
 
@@ -201,9 +204,8 @@ def train_one_epoch(
         loss.backward()
         optimizer.step()
 
-
-    for loss_name, loss_list in loss_values.items():
-            loss_values[loss_name] = loss_list.mean().item()
+    for loss_name, value in loss_values.items():
+            loss_values[loss_name] = value/size
             
     return loss_values
 
@@ -211,23 +213,21 @@ def train_one_epoch(
 def evaluate(
     model: tv_detection.FasterRCNN,
     dataloader: DataLoader,
+    coco_eval: CocoEvaluator,
     device: str,
 ) -> dict[str, float]:
-    """Evaluates the model on a given dataloader.
+    """Evaluates the model on the given dataloader using COCO metrics.
     Args:
-        model: The Faster R-CNN model.
-        dataloader: The evaluation dataloader.
-        device: The device to use for evaluation (e.g., 'cuda' or 'cpu').
-        conf_thresh: Confidence threshold for filtering predictions.
-        print_freq: Frequency of logging (in batches).
+        model: The Faster R-CNN model to evaluate.
+        dataloader: The dataloader containing the evaluation data.
+        coco_eval: The COCO evaluator object for calculating metrics.
+        device: The device to run the evaluation on (e.g., 'cuda' or 'cpu').
 
     Returns:
-        COCO evaluation statistics.
+        A dictionary containing the COCO evaluation statistics.
     """
     size = len(dataloader)
     model.eval()
-
-    coco_evaluator = CocoEvaluator(dataloader.dataset)
 
     for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Evaluating batches", total=size):
         images = [img.to(device) for img in images]
@@ -239,8 +239,9 @@ def evaluate(
                 target["image_id"]: output
                 for target, output in zip(targets, predictions)
             }
-            coco_evaluator.append(res)
+            coco_eval.append(res)
 
-
-    stats = coco_evaluator.eval()
+    stats = coco_eval.eval()
+    coco_eval.clear_detections()
+    
     return stats

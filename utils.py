@@ -221,6 +221,3 @@ class TrainingLogger:
                 
                 writer.writerow(list(eval_coco_metrics.values()) + list(train_losses.values()))
         
-
-
-# TRAIN AND EVAL UTILS
