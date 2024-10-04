@@ -1,6 +1,5 @@
 # Standard Library
 import io
-import copy
 from contextlib import redirect_stdout
 import math
 
@@ -104,8 +103,7 @@ class CocoEvaluator:
             predictions: A dictionary mapping image IDs to prediction dictionaries.
         """
         for image_id, prediction in predictions.items():
-            if not prediction:  # Check if prediction is empty
-                continue
+            
             if image_id in self.img_ids:
                 raise ValueError(f"Duplicate prediction for image ID: {image_id}")
             self.img_ids.add(image_id)
@@ -134,13 +132,14 @@ class CocoEvaluator:
             A dictionary of COCO evaluation statistics.
         """
         stats = np.zeros(12)
-        with redirect_stdout(io.StringIO()):  # Suppress COCO output during evaluation
-            coco_dt = self.coco_gt.loadRes(self.coco_dt)
-            coco = COCOeval(self.coco_gt, coco_dt, iouType="bbox")
-            coco.evaluate()
-            coco.accumulate()
-            coco.summarize()
-            stats = coco.stats
+        if self.coco_dt:
+            with redirect_stdout(io.StringIO()):  # Suppress COCO output during evaluation
+                coco_dt = self.coco_gt.loadRes(self.coco_dt)
+                coco = COCOeval(self.coco_gt, coco_dt, iouType="bbox")
+                coco.evaluate()
+                coco.accumulate()
+                coco.summarize()
+                stats = coco.stats
         return {key: value for key, value in zip(COCO_STATS_NAMES, stats)}
 
 
@@ -185,10 +184,12 @@ def train_one_epoch(
     }
 
     for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Training batches", total=size):
-
+        
         images = [img.to(device) for img in images]
-        targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
-
+        for target in targets:
+            target["boxes"] = target["boxes"].to(device)
+            target["labels"] = target["labels"].to(device)
+            
         losses = model(images, targets)
         loss = sum(loss for loss in losses.values())
         
@@ -230,8 +231,11 @@ def evaluate(
     model.eval()
 
     for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Evaluating batches", total=size):
+        
         images = [img.to(device) for img in images]
-        targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
+        for target in targets:
+            target["boxes"] = target["boxes"].to(device)
+            target["labels"] = target["labels"].to(device)
 
         with torch.no_grad():
             predictions = model(images)
@@ -240,7 +244,7 @@ def evaluate(
                 for target, output in zip(targets, predictions)
             }
             coco_eval.append(res)
-
+    
     stats = coco_eval.eval()
     coco_eval.clear_detections()
     

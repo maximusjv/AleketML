@@ -53,8 +53,7 @@ class AleketDataset(Dataset):
     def __init__(
         self,
         dataset_dir: str,
-        transforms: Optional[nn.Module] = None,
-        img_size: int = 1024,
+        transforms: Optional[v2.Transform] = None
     ) -> None:
         """Initializes the AleketDataset.
 
@@ -67,13 +66,8 @@ class AleketDataset(Dataset):
         with open(os.path.join(dataset_dir, "dataset.json"), "r") as annot_file:
             self.dataset = json.load(annot_file)
         
-        print(f"Dataset loaded from {dataset_dir}")
-        
-        self.default_transforms = v2.Compose(
-            [v2.ToDtype(torch.float32, scale=True), v2.Resize(img_size)]
-        )
-        self.train = True
         self.transforms = transforms
+        print(f"Dataset loaded from {dataset_dir}")
 
     def __len__(self):
         return len(self.dataset["imgs"])
@@ -92,17 +86,12 @@ class AleketDataset(Dataset):
 
         labels = torch.as_tensor(labels)
         bboxes = tv_tensors.BoundingBoxes(bboxes, format="XYXY", canvas_size=(wt, ht))
-
-        # Apply transforms if in training mode
-        if self.train and self.transforms is not None:
+        
+        if self.transforms:
             img, bboxes, labels = self.transforms(img, bboxes, labels)
-
         # Calculate area and iscrowd
         area = (bboxes[:, 3] - bboxes[:, 1]) * (bboxes[:, 2] - bboxes[:, 0])
         iscrowd = torch.zeros((bboxes.shape[0],), dtype=torch.int64)
-
-        # Apply default transforms
-        img, bboxes, labels = self.default_transforms(img, bboxes, labels)
 
         target = {
             "boxes": bboxes,
@@ -203,7 +192,7 @@ class StatsTracker:
         """
         import matplotlib.pyplot as plt
 
-        fig, (ax1, ax2) = plt.subplots(2, sharex=True, figsize=(20, 15))
+        fig, (ax1, ax2) = plt.subplots(2, sharex=True, figsize=(12, 8))
         fig.suptitle("Training Statistics")
         
         loss_values = [loss_dict["loss"] for loss_dict in self.train_loss_history]
