@@ -89,16 +89,11 @@ class AleketDataset(Dataset):
         
         if self.transforms:
             img, bboxes, labels = self.transforms(img, bboxes, labels)
-        # Calculate area and iscrowd
-        area = (bboxes[:, 3] - bboxes[:, 1]) * (bboxes[:, 2] - bboxes[:, 0])
-        iscrowd = torch.zeros((bboxes.shape[0],), dtype=torch.int64)
 
         target = {
             "boxes": bboxes,
             "labels": labels,
-            "area": area,
             "image_id": idx,
-            "iscrowd": iscrowd,
         }
 
         return img, target

@@ -39,12 +39,15 @@ def convert_to_coco(dataset: Dataset):
         img_entry = {"id": img_id, "height": img.shape[-2], "width": img.shape[-1]}
         coco_api_dataset["images"].append(img_entry)
 
-        bboxes = targets["boxes"].clone()
+        bboxes = targets["boxes"]
+        
+        areas = ((bboxes[:, 3] - bboxes[:, 1]) * (bboxes[:, 2] - bboxes[:, 0])).tolist()
+        
         bboxes[:, 2:] -= bboxes[:, :2]  # xyxy to xywh (coco format)
         bboxes = bboxes.tolist()
+        
         labels = targets["labels"].tolist()
-        areas = targets["area"].tolist()
-        iscrowd = targets["iscrowd"].tolist()
+        iscrowd = [0] * len(labels)
 
         for i in range(len(labels)):
             ann = {
@@ -186,9 +189,7 @@ def train_one_epoch(
     for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Training batches", total=size):
         
         images = [img.to(device) for img in images]
-        for target in targets:
-            target["boxes"] = target["boxes"].to(device)
-            target["labels"] = target["labels"].to(device)
+        targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
             
         losses = model(images, targets)
         loss = sum(loss for loss in losses.values())
@@ -233,9 +234,7 @@ def evaluate(
     for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Evaluating batches", total=size):
         
         images = [img.to(device) for img in images]
-        for target in targets:
-            target["boxes"] = target["boxes"].to(device)
-            target["labels"] = target["labels"].to(device)
+        targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
 
         with torch.no_grad():
             predictions = model(images)
