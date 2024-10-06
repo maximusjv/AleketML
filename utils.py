@@ -47,8 +47,8 @@ class AleketDataset(Dataset):
         CLASSES_TO_NUM: Mapping of class names to numerical labels.
     """
 
-    CLASSES_TO_NUM = {"placeholder": 0, "healthy": 1, "not healthy": 2}
-    NUM_TO_CLASSES = {0: "placeholder", 1: "healthy", 2: "not healthy"}
+    CLASSES_TO_NUM = {"background": 0, "healthy": 1, "not healthy": 2}
+    NUM_TO_CLASSES = {0: "background", 1: "healthy", 2: "not healthy"}
 
     def __init__(
         self,
