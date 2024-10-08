@@ -6,7 +6,7 @@ import os
 import torch
 import torchvision
 
-from utils import AleketDataset
+from AleketDataset import AleketDataset
 
 if __name__ == '__main__':
 
