@@ -1,6 +1,5 @@
 # Standard Library
 import io
-import copy
 from contextlib import redirect_stdout
 import math
 
@@ -40,12 +39,15 @@ def convert_to_coco(dataset: Dataset):
         img_entry = {"id": img_id, "height": img.shape[-2], "width": img.shape[-1]}
         coco_api_dataset["images"].append(img_entry)
 
-        bboxes = targets["boxes"].clone()
+        bboxes = targets["boxes"]
+        
+        areas = ((bboxes[:, 3] - bboxes[:, 1]) * (bboxes[:, 2] - bboxes[:, 0])).tolist()
+        
         bboxes[:, 2:] -= bboxes[:, :2]  # xyxy to xywh (coco format)
         bboxes = bboxes.tolist()
+        
         labels = targets["labels"].tolist()
-        areas = targets["area"].tolist()
-        iscrowd = targets["iscrowd"].tolist()
+        iscrowd = [0] * len(labels)
 
         for i in range(len(labels)):
             ann = {
@@ -104,8 +106,7 @@ class CocoEvaluator:
             predictions: A dictionary mapping image IDs to prediction dictionaries.
         """
         for image_id, prediction in predictions.items():
-            if not prediction:  # Check if prediction is empty
-                continue
+            
             if image_id in self.img_ids:
                 raise ValueError(f"Duplicate prediction for image ID: {image_id}")
             self.img_ids.add(image_id)
@@ -134,13 +135,14 @@ class CocoEvaluator:
             A dictionary of COCO evaluation statistics.
         """
         stats = np.zeros(12)
-        with redirect_stdout(io.StringIO()):  # Suppress COCO output during evaluation
-            coco_dt = self.coco_gt.loadRes(self.coco_dt)
-            coco = COCOeval(self.coco_gt, coco_dt, iouType="bbox")
-            coco.evaluate()
-            coco.accumulate()
-            coco.summarize()
-            stats = coco.stats
+        if self.coco_dt:
+            with redirect_stdout(io.StringIO()):  # Suppress COCO output during evaluation
+                coco_dt = self.coco_gt.loadRes(self.coco_dt)
+                coco = COCOeval(self.coco_gt, coco_dt, iouType="bbox")
+                coco.evaluate()
+                coco.accumulate()
+                coco.summarize()
+                stats = coco.stats
         return {key: value for key, value in zip(COCO_STATS_NAMES, stats)}
 
 
@@ -185,10 +187,10 @@ def train_one_epoch(
     }
 
     for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Training batches", total=size):
-
+        
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
-
+            
         losses = model(images, targets)
         loss = sum(loss for loss in losses.values())
         
@@ -230,6 +232,7 @@ def evaluate(
     model.eval()
 
     for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Evaluating batches", total=size):
+        
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
 
@@ -240,7 +243,7 @@ def evaluate(
                 for target, output in zip(targets, predictions)
             }
             coco_eval.append(res)
-
+    
     stats = coco_eval.eval()
     coco_eval.clear_detections()
     

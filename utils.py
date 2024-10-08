@@ -36,7 +36,6 @@ def download_dataset(save_dir: str, patched_dataset_gdrive_id: str = ""):
         gdown.download(id=patched_dataset_gdrive_id, output="_temp_.zip")
         shutil.unpack_archive("_temp_.zip", save_dir)
         os.remove("_temp_.zip")
-    print(f"Dataset loaded from {save_dir}")
     return save_dir
 
 # Aleket Dataset
@@ -48,14 +47,13 @@ class AleketDataset(Dataset):
         CLASSES_TO_NUM: Mapping of class names to numerical labels.
     """
 
-    CLASSES_TO_NUM = {"placeholder": 0, "healthy": 1, "not healthy": 2}
-    NUM_TO_CLASSES = {0: "placeholder", 1: "healthy", 2: "not healthy"}
+    CLASSES_TO_NUM = {"background": 0, "healthy": 1, "not healthy": 2}
+    NUM_TO_CLASSES = {0: "background", 1: "healthy", 2: "not healthy"}
 
     def __init__(
         self,
         dataset_dir: str,
-        transforms: Optional[nn.Module] = None,
-        img_size: int = 1024,
+        transforms: Optional[v2.Transform] = None
     ) -> None:
         """Initializes the AleketDataset.
 
@@ -68,16 +66,12 @@ class AleketDataset(Dataset):
         with open(os.path.join(dataset_dir, "dataset.json"), "r") as annot_file:
             self.dataset = json.load(annot_file)
         
-        
-        self.default_transforms = v2.Compose(
-            [v2.ToDtype(torch.float32, scale=True), v2.Resize(img_size)]
-        )
-        self.train = True
         self.transforms = transforms
+        print(f"Dataset loaded from {dataset_dir}")
 
     def __len__(self):
         return len(self.dataset["imgs"])
-
+ 
     def __getitem__(self, idx: int):
         img_path = f"{self.img_dir}/{self.dataset['imgs'][idx]}.jpeg"
         img = PIL.Image.open(img_path).convert("RGB")
@@ -92,24 +86,14 @@ class AleketDataset(Dataset):
 
         labels = torch.as_tensor(labels)
         bboxes = tv_tensors.BoundingBoxes(bboxes, format="XYXY", canvas_size=(wt, ht))
-
-        # Apply transforms if in training mode
-        if self.train and self.transforms is not None:
+        
+        if self.transforms:
             img, bboxes, labels = self.transforms(img, bboxes, labels)
-
-        # Calculate area and iscrowd
-        area = (bboxes[:, 3] - bboxes[:, 1]) * (bboxes[:, 2] - bboxes[:, 0])
-        iscrowd = torch.zeros((bboxes.shape[0],), dtype=torch.int64)
-
-        # Apply default transforms
-        img, bboxes, labels = self.default_transforms(img, bboxes, labels)
 
         target = {
             "boxes": bboxes,
             "labels": labels,
-            "area": area,
             "image_id": idx,
-            "iscrowd": iscrowd,
         }
 
         return img, target
@@ -125,8 +109,8 @@ def split_dataset(
     """Divides the dataset into training and validation sets and creates DataLoaders.
     Args:
         dataset: The AleketDataset to divide.
-        train_indicies: Dataset indicies to train
-        test_fraction: The fraction of the used dataset to allocate for validation.
+        train_indicies: Dataset indicies to train.
+        val_indicies: Dataset indicies to validate.
         batch_size: The batch size for the DataLoaders.
         num_workers: The number of worker processes for data loading.
     Returns:
@@ -166,13 +150,13 @@ class StatsTracker:
         self.train_loss_history = []
         self.val_metrics_history = (
             []
-        )  # List to store dictionaries of validation metrics
-        self.best_val_metric = None  # Initialize to None or a suitable default value
+        )  
+        self.best_val_metric = None  
 
     def update_train_loss(self, loss: dict[str, float]) -> None:
         """Updates the training loss history.
         Args:
-            loss: The training loss value for the current epoch.
+            loss: The training losses value for the current epoch.
         """
         self.train_loss_history.append(loss)
 
@@ -196,14 +180,14 @@ class StatsTracker:
 
         return False
 
-    def plot_stats(self, save_path: Optional[str] = None) -> None:
+    def plot_stats(self, save_path: str = None) -> None:
         """Plots the training loss and validation AP@.50:.05:.95.
         Args:
-            save_path: Optional path to save the plot. If provided, the plot will be saved to this location.
+            save_path: Path to save the plot.
         """
         import matplotlib.pyplot as plt
 
-        fig, (ax1, ax2) = plt.subplots(2, sharex=True, figsize=(20, 15))
+        fig, (ax1, ax2) = plt.subplots(2, sharex=True, figsize=(12, 8))
         fig.suptitle("Training Statistics")
         
         loss_values = [loss_dict["loss"] for loss_dict in self.train_loss_history]
@@ -225,19 +209,18 @@ class StatsTracker:
 class TrainingLogger:
     """A logger that uses Python's logging module."""
 
-    def __init__(self, csv_epochs_file: Optional[str] = None) -> None:
+    def __init__(self, stats_file: Optional[str] = None) -> None:
         """
         Initializes the TrainingLogger.
         Args:
-            log_file: Optional path to a log file. If provided, logs will be written to this file.
+            stats_file: Path to a write stats to.
         """
-        self.log_file = csv_epochs_file
-        if self.log_file:
-            self.log_file = os.path.abspath(csv_epochs_file)
-            self.log_file = os.path.abspath(csv_epochs_file)
-            os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
-            if not os.path.exists(self.log_file):
-                with open(self.log_file, 'w', newline='') as csvfile:
+        self.stats_file = stats_file
+        if self.stats_file:
+            self.stats_file = os.path.abspath(stats_file)
+            os.makedirs(os.path.dirname(self.stats_file), exist_ok=True)
+            if not os.path.exists(self.stats_file):
+                with open(self.stats_file, 'w', newline='') as csvfile:
                     writer = csv.writer(csvfile)
                     writer.writerow(COCO_STATS_NAMES + LOSSES_NAMES)
             
@@ -269,9 +252,8 @@ class TrainingLogger:
         else:
             print(f"\tBest Validation {COCO_STATS_NAMES[0]}: {self.best_val_metric:.3f}")
         
-        if self.log_file:
-            with open(self.log_file, 'a', newline='') as csvfile:
+        if self.stats_file:
+            with open(self.stats_file, 'a', newline='') as csvfile:
                 writer = csv.writer(csvfile)
-                
                 writer.writerow(list(eval_coco_metrics.values()) + list(train_losses.values()))
         
