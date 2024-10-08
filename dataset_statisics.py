@@ -19,7 +19,8 @@ if __name__ == '__main__':
 
         # Iterate over dataset and collect statistics
         for img, target in dataset:
-            for box, label, area in zip(target["boxes"], target["labels"], target["area"]):
+            areas = ((target["boxes"][:, 3] - target["boxes"][:, 1]) * (target["boxes"][:, 2] - target["boxes"][:, 0])).tolist()
+            for box, label, area in zip(target["boxes"], target["labels"], areas):
                 label = label.item()
                 label = AleketDataset.NUM_TO_CLASSES[label]
                 # Update class counts
