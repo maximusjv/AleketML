@@ -5,21 +5,57 @@ import time
 
 from typing import  Optional
 
+# Third-Party Libraries
+import numpy as np
+
 # PyTorch
 from torch.utils.data import DataLoader, Subset
 
 from aleket_dataset import AleketDataset
 from training_and_evaluation import COCO_STATS_NAMES, LOSSES_NAMES
     
+def split_dataset(dataset: AleketDataset,
+                  dataset_fraction: float, 
+                  validation_fraction: float,
+                  generator: np.random.Generator,
+                  ) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
+    
+    by_full_images = dataset.by_full_images()
+    
+    full_images = list(by_full_images.keys())
+    full_images = generator.permutation(full_images)
+    
+    total_num_samples = max(2,int(len(dataset.images) * dataset_fraction))
+    validation_num_samples = max(1,int(validation_fraction * total_num_samples))
+    train_num_samples = total_num_samples - validation_num_samples
+    
+    train_len = 0
+    train_set = {}
+    validation_len = 0
+    validation_set = {}
+    
+    for images in full_images:
+        if validation_len < validation_num_samples:
+            validation_set[images] = by_full_images[images]
+            validation_len += len(by_full_images[images])
+        elif train_len < train_num_samples:
+            train_set[images] = by_full_images[images]
+            train_len += len(by_full_images[images])
+    
+    
+    return train_set, validation_set
+    
+    
+
 # Dataset split
-def split_dataset(
+def create_dataloaders(
     dataset: AleketDataset,
     train_indicies: list[int],
     val_indicies: list[int],
     batch_size: int,
     num_workers: int,
 ) -> tuple[DataLoader, DataLoader]:
-    """Divides the dataset into training and validation sets and creates DataLoaders.
+    """Creates DataLoaders for split dataset.
     Args:
         dataset: The AleketDataset to divide.
         train_indicies: Dataset indicies to train.
@@ -29,7 +65,7 @@ def split_dataset(
     Returns:
         A tuple containing the training DataLoader and the validation DataLoader.
     """
-
+    
     def collate_fn(batch):
         """Collates data samples into batches for the dataloader."""
         return tuple(zip(*batch))
