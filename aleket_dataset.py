@@ -10,14 +10,12 @@ import gdown
 
 # PyTorch
 import torch
-from torch import nn
-from torch.utils.data import Dataset, DataLoader, Subset
+from torch.utils.data import Dataset
 
 # Torchvision
 import torchvision.transforms.v2 as v2
 import torchvision.tv_tensors as tv_tensors
 
-from training_and_evaluation import COCO_STATS_NAMES, LOSSES_NAMES
 
 # Downloads and extracts the dataset if it doesn't exist locally.
 def download_dataset(save_dir: str, patched_dataset_gdrive_id: str = ""):
@@ -63,18 +61,37 @@ class AleketDataset(Dataset):
         with open(os.path.join(dataset_dir, "dataset.json"), "r") as annot_file:
             self.dataset = json.load(annot_file)
         
+        self.images = list(self.dataset.keys())
+        
+        def get_key(x: str): # sort by full image id and then patch num
+            s = x.split('_')
+            return int(s[0]), int(s[1])
+        
+        self.images.sort(key=get_key) 
+        
         self.transforms = transforms
         print(f"Dataset loaded from {dataset_dir}")
 
+    def by_full_images(self) -> dict[str, list[int]]:
+        by_full_images = {}
+        for idx, name in enumerate(self.images):
+            full_image_id = name.split('_')[0]
+            if not name in by_full_images:
+                by_full_images[full_image_id] = []
+            by_full_images[full_image_id].append(idx)
+        return by_full_images
+
     def __len__(self):
-        return len(self.dataset["imgs"])
+        return len(self.images)
  
     def __getitem__(self, idx: int):
-        img_path = f"{self.img_dir}/{self.dataset['imgs'][idx]}.jpeg"
-        img = PIL.Image.open(img_path).convert("RGB")
-
-        annots = self.dataset["annotations"][idx]
+        image_id = self.images[idx]  
+        
+        annots = self.dataset[image_id]
         labels, bboxes = annots["category_id"], annots["boxes"]
+                
+        img_path = os.path.join(f"{self.img_dir}",f"{image_id}.jpeg")
+        img = PIL.Image.open(img_path).convert("RGB")
 
         # Convert to torchvision tensors
         img = tv_tensors.Image(img, dtype=torch.uint8)

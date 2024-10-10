@@ -8,7 +8,7 @@ from typing import  Optional
 # PyTorch
 from torch.utils.data import DataLoader, Subset
 
-import AleketDataset
+from aleket_dataset import AleketDataset
 from training_and_evaluation import COCO_STATS_NAMES, LOSSES_NAMES
     
 # Dataset split

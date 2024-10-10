@@ -1,6 +1,6 @@
 .venv
-dataset_patched
+dataset*
 .wslvenv
-result
+result*
 __pycache__
 .idea
