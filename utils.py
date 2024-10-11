@@ -3,17 +3,22 @@ import csv
 import os
 import time
 
-from typing import  Optional
-
 # Third-Party Libraries
 import numpy as np
+import torch
+from torch.optim import SGD
+from torch.optim.lr_scheduler import LinearLR
 
 # PyTorch
 from torch.utils.data import DataLoader, Subset
+from torchvision.models.detection import FasterRCNN
+
 
 from aleket_dataset import AleketDataset
-from training_and_evaluation import COCO_STATS_NAMES, LOSSES_NAMES
-    
+from metrics import COCO_STATS_NAMES, LOSSES_NAMES
+
+
+
 def split_dataset(dataset: AleketDataset,
                   dataset_fraction: float, 
                   validation_fraction: float,
@@ -45,21 +50,20 @@ def split_dataset(dataset: AleketDataset,
     
     return train_set, validation_set
     
-    
 
 # Dataset split
 def create_dataloaders(
     dataset: AleketDataset,
-    train_indicies: list[int],
-    val_indicies: list[int],
+    train_indices: list[int],
+    val_indices: list[int],
     batch_size: int,
     num_workers: int,
 ) -> tuple[DataLoader, DataLoader]:
     """Creates DataLoaders for split dataset.
     Args:
         dataset: The AleketDataset to divide.
-        train_indicies: Dataset indicies to train.
-        val_indicies: Dataset indicies to validate.
+        train_indices: Dataset indicies to train.
+        val_indices: Dataset indicies to validate.
         batch_size: The batch size for the DataLoaders.
         num_workers: The number of worker processes for data loading.
     Returns:
@@ -71,8 +75,8 @@ def create_dataloaders(
         return tuple(zip(*batch))
 
     # Create training and validation subsets
-    train_dataset = Subset(dataset, train_indicies)
-    val_dataset = Subset(dataset, val_indicies)
+    train_dataset = Subset(dataset, train_indices)
+    val_dataset = Subset(dataset, val_indices)
 
     # Create DataLoaders
     train_dataloader = DataLoader(
@@ -92,42 +96,44 @@ def create_dataloaders(
 
     return train_dataloader, val_dataloader
 
+
 class StatsTracker:
     """Tracks and logs training statistics."""
 
-    def __init__(self) -> None:
+    def __init__(self, stats_file: str = None) -> None:
         self.train_loss_history = []
         self.val_metrics_history = (
             []
         )  
-        self.best_val_metric = None  
+        self.best_val_metric = None
 
-    def update_train_loss(self, loss: dict[str, float]) -> None:
-        """Updates the training loss history.
-        Args:
-            loss: The training losses value for the current epoch.
-        """
-        self.train_loss_history.append(loss)
+        self.stats_file = stats_file
+        if self.stats_file:
+            self.stats_file = os.path.abspath(stats_file)
+            os.makedirs(os.path.dirname(self.stats_file), exist_ok=True)
+            if not os.path.exists(self.stats_file):
+                with open(self.stats_file, 'w', newline='') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(COCO_STATS_NAMES + LOSSES_NAMES)
 
-    def update_val_metrics(self, metrics: dict) -> bool:
-        """Updates the validation metrics history and checks for a new best.
-        Args:
-            metrics: A dictionary containing validation metrics (e.g., AP@.50:.05:.95).
+    def update_stats(self, train_losses: dict[str, float], eval_coco_metrics: dict[str, float]):
 
-        Returns:
-            True if a new best validation metric is achieved, False otherwise.
-        """
-        self.val_metrics_history.append(metrics)
+        self.train_loss_history.append(train_losses)
+        self.val_metrics_history.append(eval_coco_metrics)
 
-        # Update best validation metric if applicable
+        is_best = False
         if (
-            self.best_val_metric is None
-            or metrics["AP@.50:.05:.95"] > self.best_val_metric["AP@.50:.05:.95"]
+                self.best_val_metric is None
+                or eval_coco_metrics["AP@.50:.05:.95"] > self.best_val_metric["AP@.50:.05:.95"]
         ):
-            self.best_val_metric = metrics
-            return True
+            self.best_val_metric = eval_coco_metrics
+            is_best = True
 
-        return False
+        if self.stats_file:
+            with open(self.stats_file, 'a', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(list(eval_coco_metrics.values()) + list(train_losses.values()))
+
 
     def plot_stats(self, save_path: str = None) -> None:
         """Plots the training loss and validation AP@.50:.05:.95.
@@ -155,25 +161,15 @@ class StatsTracker:
             
         plt.close(fig)
 
+
 class TrainingLogger:
     """A logger that uses Python's logging module."""
 
-    def __init__(self, stats_file: Optional[str] = None) -> None:
+    def __init__(self) -> None:
         """
         Initializes the TrainingLogger.
-        Args:
-            stats_file: Path to a write stats to.
         """
-        self.stats_file = stats_file
-        if self.stats_file:
-            self.stats_file = os.path.abspath(stats_file)
-            os.makedirs(os.path.dirname(self.stats_file), exist_ok=True)
-            if not os.path.exists(self.stats_file):
-                with open(self.stats_file, 'w', newline='') as csvfile:
-                    writer = csv.writer(csvfile)
-                    writer.writerow(COCO_STATS_NAMES + LOSSES_NAMES)
-            
-            
+
         self.time_elapsed = 0
         self.best_val_metric = None
 
@@ -181,11 +177,8 @@ class TrainingLogger:
         self.time_elapsed = time.time()
         print(f"\nEpoch {epoch}/{total_epochs}; Learning rate: {lr}")
 
-
-    def log_eval_start(self) -> None:
-        print("Evaluating...")
-
     def log_epoch_end(self, epoch: int, train_losses: dict[str, float], eval_coco_metrics: dict[str, float]) -> None:
+
         if self.time_elapsed != 0:
             time_elapsed = time.time() - self.time_elapsed
             self.time_elapsed = 0
@@ -201,8 +194,37 @@ class TrainingLogger:
         else:
             print(f"\tBest Validation {COCO_STATS_NAMES[0]}: {self.best_val_metric:.3f}")
         
-        if self.stats_file:
-            with open(self.stats_file, 'a', newline='') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(list(eval_coco_metrics.values()) + list(train_losses.values()))
-        
+
+
+# Save training state
+def save_checkpoint(model: FasterRCNN,
+                    optimizer: SGD,
+                    lr_scheduler: LinearLR,
+                    epoch_trained: int,
+                    checkpoint_path: str) -> None:
+    save_state = {
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "lr_scheduler_state_dict": lr_scheduler.state_dict(),
+        "epoch_trained": epoch_trained,
+    }
+    torch.save(save_state, checkpoint_path)
+
+
+# Load training state
+def load_checkpoint(
+        model: FasterRCNN,
+        checkpoint_path: str) -> tuple[FasterRCNN, SGD, LinearLR, int]:
+    save_state = torch.load(checkpoint_path, weights_only=False)
+
+    model.load_state_dict(save_state["model_state_dict"])
+    optimizer = SGD(model.parameters())
+    optimizer.load_state_dict(save_state["optimizer_state_dict"])
+
+    epoch_trained = save_state["epoch_trained"]
+
+    lr_scheduler = LinearLR(optimizer, last_epoch=epoch_trained)
+    lr_scheduler.load_state_dict(save_state["lr_scheduler_state_dict"])
+
+    return model, optimizer, lr_scheduler, epoch_trained
+

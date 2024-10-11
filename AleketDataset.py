@@ -10,14 +10,13 @@ import gdown
 
 # PyTorch
 import torch
-from torch import nn
-from torch.utils.data import Dataset, DataLoader, Subset
+from torch.utils.data import Dataset
 
 # Torchvision
 import torchvision.transforms.v2 as v2
 import torchvision.tv_tensors as tv_tensors
 
-from training_and_evaluation import COCO_STATS_NAMES, LOSSES_NAMES
+from utils import COCO_STATS_NAMES, LOSSES_NAMES
 
 # Downloads and extracts the dataset if it doesn't exist locally.
 def download_dataset(save_dir: str, patched_dataset_gdrive_id: str = ""):

@@ -1,174 +1,112 @@
 # Standard Library
-import io
-from contextlib import redirect_stdout
+import os
 import math
 
 # Third-party Libraries
-import numpy as np
+from torchvision.transforms import v2
 from tqdm import tqdm
-from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
 
 # PyTorch
 import torch
 from torch import optim
-from torch.utils.data import Dataset, DataLoader
+from torch.optim import SGD
+from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import LinearLR
 
 # Torchvision
 import torchvision.models.detection as tv_detection
+from torchvision.models.detection import FasterRCNN
+
+from AleketDataset import AleketDataset
+from metrics import LOSSES_NAMES, CocoEvaluator
+from utils import StatsTracker, TrainingLogger, load_checkpoint, save_checkpoint
 
 
-# COCO METRICS UTILS
-def convert_to_coco(dataset: Dataset):
-    """Converts a custom dataset to COCO API format.
-    Args:
-        dataset: The custom dataset to convert.
+def train(run_name: str,
+          model:FasterRCNN,
 
-    Returns:
-        A COCO dataset object.
-    """
+          dataset: AleketDataset,
+          default_transforms: v2.Transform, training_transforms: v2.Transform,
+          train_dataloader: DataLoader, val_dataloader: DataLoader,
 
-    coco_api_dataset = {"images": [], "categories": [], "annotations": []}
-    categories = set()
-    ann_id = 1
+          total_epochs: int,
+          warmup_epochs: int,
 
-    for idx in range(len(dataset)):
-        img, targets = dataset[idx]
-        img_id = targets["image_id"]
+          learning_rate: float,
+          momentum: float,
+          weight_decay: float,
 
-        img_entry = {"id": img_id, "height": img.shape[-2], "width": img.shape[-1]}
-        coco_api_dataset["images"].append(img_entry)
+          evaluator: CocoEvaluator,
 
-        bboxes = targets["boxes"]
-        
-        areas = ((bboxes[:, 3] - bboxes[:, 1]) * (bboxes[:, 2] - bboxes[:, 0])).tolist()
-        
-        bboxes[:, 2:] -= bboxes[:, :2]  # xyxy to xywh (coco format)
-        bboxes = bboxes.tolist()
-        
-        labels = targets["labels"].tolist()
-        iscrowd = [0] * len(labels)
+          device: torch.device,
 
-        for i in range(len(labels)):
-            ann = {
-                "image_id": img_id,
-                "bbox": bboxes[i],
-                "category_id": labels[i],
-                "area": areas[i],
-                "iscrowd": iscrowd[i],
-                "id": ann_id,
-            }
-            categories.add(labels[i])
-            coco_api_dataset["annotations"].append(ann)
-            ann_id += 1
-
-    coco_api_dataset["categories"] = [
-        {"id": i} for i in sorted(categories)
-    ]  # TODO add names
-
-    with redirect_stdout(io.StringIO()):  # Suppress COCO output during creation
-        coco_ds = COCO()
-        coco_ds.dataset = coco_api_dataset
-        coco_ds.createIndex()
-    return coco_ds
-
-# METRICS NAMES
-COCO_STATS_NAMES = ["AP@.50:.05:.95", "AP@0.5", "AP@0.75",
-                    "AP small", "AP medium", "AP large", "AR max=1",
-                    "AR max=10", "AR max=100", "AR small", "AR medium", "AR large"]
-LOSSES_NAMES = ["loss", "loss_classifier", "loss_box_reg", 'loss_objectness', 'loss_rpn_box_reg']
- 
-
-class CocoEvaluator:
-    """Evaluates object detection predictions using COCO metrics."""
-   
-    def __init__(self, gt_dataset):
-        """Initializes the CocoEvaluator.
-        Args:
-            gt_dataset: The ground truth dataset, either a Dataset or a COCO dataset object.
-        """
-        if isinstance(gt_dataset, Dataset):
-            gt_dataset = convert_to_coco(gt_dataset)
-
-        self.coco_gt = gt_dataset
-        self.coco_dt = []
-        self.img_ids = set()
-        
-    def clear_detections(self):
-        """Clears the stored detection results."""
-        
-        self.coco_dt = []
-        self.img_ids = set()
-            
-    def append(self, predictions: dict[int, dict]):
-        """Appends predictions to the evaluator.
-        Args:
-            predictions: A dictionary mapping image IDs to prediction dictionaries.
-        """
-        for image_id, prediction in predictions.items():
-            
-            if image_id in self.img_ids:
-                raise ValueError(f"Duplicate prediction for image ID: {image_id}")
-            self.img_ids.add(image_id)
-
-            boxes = prediction["boxes"].clone()
-            boxes[:, 2:] -= boxes[:, :2]
-            boxes = boxes.tolist()
-            scores = prediction["scores"].tolist()
-            labels = prediction["labels"].tolist()
-
-            self.coco_dt.extend(
-                [
-                    {
-                        "image_id": image_id,
-                        "category_id": labels[k],
-                        "bbox": box,
-                        "score": scores[k],
-                    }
-                    for k, box in enumerate(boxes)
-                ]
-            )
-
-    def eval(self):
-        """Evaluates the accumulated predictions.
-        Returns:
-            A dictionary of COCO evaluation statistics.
-        """
-        stats = np.zeros(12)
-        if self.coco_dt:
-            with redirect_stdout(io.StringIO()):  # Suppress COCO output during evaluation
-                coco_dt = self.coco_gt.loadRes(self.coco_dt)
-                coco = COCOeval(self.coco_gt, coco_dt, iouType="bbox")
-                coco.evaluate()
-                coco.accumulate()
-                coco.summarize()
-                stats = coco.stats
-        return {key: value for key, value in zip(COCO_STATS_NAMES, stats)}
+          resume: bool = False,
+          checkpoints: bool = False,
+          verbose: bool = True,
+          ):
 
 
-def filter_predictions_by_conf(predictions: list, conf_thresh: float) -> list:
-    """Filters predictions based on a confidence threshold.
+    optimizer = SGD(model.parameters(), lr=learning_rate*10, momentum=momentum, weight_decay=weight_decay)
+    lr_scheduler = LinearLR(
+        optimizer, start_factor=1, end_factor=0.1, total_iters=warmup_epochs
+    )
 
-    Args:
-        predictions: List of prediction dictionaries.
-        conf_thresh: Confidence threshold for filtering.
+    result_path = os.path.abspath(f"result_{run_name}")
+    os.makedirs(os.path.join(run_name, "checkpoints"), exist_ok=True)
+    last_checkpoint_path = os.path.join(result_path, "run", "last.pth")
+    best_checkpoint_bath = os.path.join(result_path, "run", "best.pth")
+    validation_graph = os.path.join(result_path, "validation_graph")
+    validation_log = os.path.join(result_path, "validation_log.csv")
 
-    Returns:
-        List of filtered prediction dictionaries.
-    """
-    filtered_predictions = []
-    for prediction in predictions:
-        keep_indices = torch.where(prediction["scores"] > conf_thresh)[0]
-        filtered_prediction = {k: v[keep_indices] for k, v in prediction.items()}
-        filtered_predictions.append(filtered_prediction)
-    return filtered_predictions
+    epoch_trained = 0
+    stats_tracker = StatsTracker(validation_log)
+    logger = TrainingLogger()
+
+    if resume:
+        print(f"Resuming from  {last_checkpoint_path}...")
+        model, optimizer, lr_scheduler, epoch_trained = load_checkpoint(model, last_checkpoint_path)
+
+    while epoch_trained < total_epochs:
+
+        epoch = epoch_trained + 1
+
+        if verbose:
+            logger.log_epoch_start(epoch, total_epochs, lr_scheduler.get_last_lr()[0])
+
+        dataset.transforms = training_transforms
+        losses = train_one_epoch(
+            model, optimizer, train_dataloader, device
+        )
+
+        dataset.transforms = default_transforms
+        eval_stats = evaluate(
+            model, val_dataloader, evaluator, device
+        )
+
+        is_best = stats_tracker.update_stats(losses, eval_stats)
+        stats_tracker.plot_stats(validation_graph)
+
+        if verbose:
+            logger.log_epoch_end(epoch, losses, eval_stats)
+
+
+        lr_scheduler.step()
+
+        epoch_trained = epoch
+        if checkpoints:
+            save_checkpoint(model, optimizer, lr_scheduler, epoch_trained, last_checkpoint_path)
+            if is_best:
+                save_checkpoint(model, optimizer, lr_scheduler, epoch_trained, best_checkpoint_bath)
+
+    save_checkpoint(model, optimizer, lr_scheduler, epoch_trained, last_checkpoint_path)
+
 
 
 def train_one_epoch(
     model: tv_detection.FasterRCNN,
     optimizer: optim.Optimizer,
     dataloader: DataLoader,
-    device: str,
+    device: torch.device,
 ) -> dict[str, float]:
     """Trains the model for one epoch.
     Args:
@@ -207,7 +145,7 @@ def train_one_epoch(
         optimizer.step()
 
     for loss_name, value in loss_values.items():
-            loss_values[loss_name] = value/size
+        loss_values[loss_name] = value/size
             
     return loss_values
 
@@ -216,7 +154,7 @@ def evaluate(
     model: tv_detection.FasterRCNN,
     dataloader: DataLoader,
     coco_eval: CocoEvaluator,
-    device: str,
+    device: torch.device,
 ) -> dict[str, float]:
     """Evaluates the model on the given dataloader using COCO metrics.
     Args:
