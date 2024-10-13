@@ -76,7 +76,7 @@ class AleketDataset(Dataset):
         by_full_images = {}
         for idx, name in enumerate(self.images):
             full_image_id = name.split('_')[0]
-            if not name in by_full_images:
+            if not full_image_id in by_full_images:
                 by_full_images[full_image_id] = []
             by_full_images[full_image_id].append(idx)
         return by_full_images

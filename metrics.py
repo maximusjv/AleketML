@@ -19,12 +19,11 @@ from torch.utils.data import Dataset
 # Torchision
 from torchvision import ops
 
-from AleketDataset import AleketDataset
 
 # METRICS NAMES
 COCO_STATS_NAMES = ["AP@.50:.05:.95", "AP@0.5", "AP@0.75",
                     "AP small", "AP medium", "AP large", "AR max=1",
-                    "AR max=10", "AR max=100", "AR small", "AR medium", "AR large"]
+                    "AR max=10", "AR@.50:.05:.95", "AR small", "AR medium", "AR large"]
 LOSSES_NAMES = ["loss", "loss_classifier", "loss_box_reg", 'loss_objectness', 'loss_rpn_box_reg']
 
 
@@ -197,14 +196,14 @@ def prepare_dts(predictions: dict[str, dict[str, Tensor]]) -> dict[tuple[str, in
     return dts
 
 
-def match_gts_dts(gts: np.ndarray,
-                  dts:  np.ndarray,
-                  iou_matrix: np.ndarray,
-                  iou_thresh: float):
+def match_gts_dts(gts: Tensor,
+                  dts:  Tensor,
+                  iou_matrix: Tensor,
+                  iou_thresh: float) -> tuple[Tensor, Tensor]:
 
     # assumes that predictions already sorted
-    dt_matches = np.zeros(len(dts))
-    gt_matches = np.zeros(len(gts))
+    dt_matches = torch.zeros(len(dts))
+    gt_matches = torch.zeros(len(gts))
 
     for dind, _ in enumerate(dts):
         iou = iou_thresh
@@ -227,14 +226,13 @@ def match_gts_dts(gts: np.ndarray,
     return gt_matches, dt_matches
 
 
-def pr_eval(gt_matches: np.ndarray, dt_matches: np.ndarray, dt_scores: np.ndarray, recall_thrs: np.ndarray):
+def pr_eval(gt_matches: Tensor, dt_matches: Tensor, dt_scores: Tensor, recall_thrs: Tensor):
 
-    inds = np.argsort(-dt_scores, kind='mergesort')
-    dt_scores = dt_scores[inds]
+    inds = torch.argsort(dt_scores, stable=True, descending=True)
     dt_matches = dt_matches[inds]
 
-    tps = np.cumsum(dt_matches).astype(float)
-    fps = np.cumsum(np.logical_not(dt_matches)).astype(float)
+    tps = torch.cumsum(dt_matches, dim=0, dtype=torch.float64)
+    fps = torch.cumsum(torch.logical_not(dt_matches), dim=0, dtype=torch.float64)
 
     rc = tps / len(gt_matches)
     pr = tps / (fps + tps + np.spacing(1))
@@ -244,15 +242,16 @@ def pr_eval(gt_matches: np.ndarray, dt_matches: np.ndarray, dt_scores: np.ndarra
         if pr[i] > pr[i - 1]:
             pr[i - 1] = pr[i]
 
-    inds = np.searchsorted(rc, recall_thrs, side='left')
-    q = np.zeros((len(recall_thrs),))
+    inds = torch.searchsorted(rc, recall_thrs, side='left')
+    pr_curve = torch.zeros((len(recall_thrs),))
 
     for ri, pi in enumerate(inds):
-        q[ri] = pr[pi] if pi < len(pr) else 0
+        pr_curve[ri] = pr[pi] if pi < len(pr) else 0
 
     return {
         "recall": rc[-1] if len(rc) > 0 else 0,
-        "precision": q,
+        "precision": pr[-1] if len(pr) > 0 else 0,
+        "pr_curve": pr_curve,
     }
 
 
@@ -262,18 +261,22 @@ class Evaluator:
     max_dets = 100
     COCO = None
     def __init__(self, ds: Dataset):
-        self.gts, self.images_id, self.categories = prepare_gts(ds)
-        self.recall_thrs = np.linspace(.0, 1.00, 101)
-        self.iou_thrs = np.linspace(.50, 0.95, 10)
+        (self.gts,
+         self.images_id,
+         self.categories) = prepare_gts(ds)
 
-    def _pr_eval_by_iou(self, dts: dict[tuple[str, int], tuple[Tensor, Tensor]], iou_thrs: np.ndarray):
+        self.recall_thrs = torch.linspace(.0, 1.00, 101)
+        self.iou_thrs = torch.linspace(.50, 0.95, 10)
+
+    def _pr_eval_by_iou(self, dts: dict[tuple[str, int], tuple[Tensor, Tensor]], iou_thrs: Tensor):
 
         T = len(iou_thrs)
         K = len(self.categories)
         R = len(self.recall_thrs)
 
-        precision = np.zeros((T, R, K))
-        recall = np.zeros((T, K, ))
+        pr_curve = torch.zeros((T, R, K))
+        precision = torch.zeros((T, K, ))
+        recall = torch.zeros((T, K, ))
 
         for t, iou_thresh in enumerate(iou_thrs.tolist()):
             for c, cat in enumerate(self.categories):
@@ -290,23 +293,15 @@ class Evaluator:
                     if len(dt) == 0 and len(gt) == 0:
                         continue
 
-                    ind = np.argsort(-score, kind="mergesort")
-                    dt = dt[ind]
-                    score = score[ind]
-
                     if len(dt) > Evaluator.max_dets:
                         dt = dt[:Evaluator.max_dets]
                         score = score[:Evaluator.max_dets]
 
-                    assert (len(gt) == len(Evaluator.COCO.coco_ev.by_imgs[image_id, 0, cat]["gtIds"]))
-                    assert (len(dt) == len(Evaluator.COCO.coco_ev.by_imgs[image_id, 0, cat]["dtIds"]))
-
-                    gt_match, dt_match = np.zeros(len(gt)), np.zeros(len(dt))
+                    gt_match, dt_match = torch.zeros(len(gt)), torch.zeros(len(dt))
                     if len(gt) != 0 and len(dt) != 0:
                         # Compute IoU
-                        iou_matrix = ops.box_iou(dt, gt).numpy()
-                        assert(iou_matrix.shape == Evaluator.COCO.coco_ev.ious[(image_id, cat)].shape)
-                        gt_match, dt_match = match_gts_dts(gt.numpy(), dt.numpy(), iou_matrix, iou_thresh)
+                        iou_matrix = ops.box_iou(dt, gt)
+                        gt_match, dt_match = match_gts_dts(gt, dt, iou_matrix, iou_thresh)
 
                     gt_matches.extend(gt_match)
                     dt_matches.extend(dt_match)
@@ -315,18 +310,17 @@ class Evaluator:
                 if not gt_matches:
                     continue
 
-                gt_matches = np.array(gt_matches)
-                dt_matches = np.array(dt_matches)
-                dt_scores = np.array(dt_scores)
-
-                assert (len(gt_matches) == Evaluator.COCO.coco_ev.NPIG[0, c, 2])
-                assert (dt_matches.shape == Evaluator.COCO.coco_ev.DTMS[0, c, 2][0].shape)
+                gt_matches = torch.as_tensor(gt_matches)
+                dt_matches = torch.as_tensor(dt_matches)
+                dt_scores = torch.as_tensor(dt_scores)
 
                 pr_res = pr_eval(gt_matches, dt_matches, dt_scores, self.recall_thrs)
-                precision[t, :, c] = pr_res["precision"]
+                pr_curve[t, :, c] = pr_res["pr_curve"]
+                precision[t, c] = pr_res["precision"]
                 recall[t, c] = pr_res["recall"]
 
         return {
+            "pr_curve": pr_curve,
             "precision": precision,
             "recall": recall,
         }
@@ -340,52 +334,51 @@ class Evaluator:
         pr_res = self._pr_eval_by_iou(dts, iou_thrs=self.iou_thrs)
 
 
+        pr_curve = pr_res["pr_curve"]
         precision = pr_res["precision"]
         recall = pr_res["recall"]
 
-        self.precision = precision
-        self.recall = recall
-
         # Compute AP
 
-        p = precision[precision > -1]
-        if len(p) > 0:
-            mAP = np.mean(p)
+        pr = pr_curve[pr_curve > -1]
+        if len(pr) > 0:
+            mAP = torch.mean(pr).item()
         else:
             mAP = -1
 
-        p = precision[0, :, :]
-        p = p[p > -1]
-        if len(p) > 0:
-            AP50 = np.mean(p)
+        pr = pr_curve[0, :, :]
+        pr = pr[pr > -1]
+        if len(pr) > 0:
+            AP50 = torch.mean(pr).item()
         else:
             AP50 = -1
 
-        p = precision[5, :, :]
-        p = p[p > -1]
-        if len(p) > 0:
-            AP75 = np.mean(p)
+        pr = pr_curve[5, :, :]
+        pr = pr[pr > -1]
+        if len(pr) > 0:
+            AP75 = torch.mean(pr).item()
         else:
             AP75 = -1
 
         # Compute AR
+
         r = recall[recall > -1]
-        if len(p) > 0:
-            AR = np.mean(r)
+        if len(pr) > 0:
+            AR = torch.mean(r).item()
         else:
             AR = -1
 
         r = recall[0, :]
         r = r[r > -1]
         if len(r) > 0:
-            AR50 = np.mean(r)
+            AR50 = torch.mean(r).item()
         else:
             AR50 = -1
 
         r = recall[5, :]
         r = r[r > -1]
         if len(r) > 0:
-            AR75 = np.mean(r)
+            AR75 = torch.mean(r).item()
         else:
             AR75 = -1
 
@@ -393,10 +386,9 @@ class Evaluator:
                 COCO_STATS_NAMES[0]: mAP,
                 COCO_STATS_NAMES[1]: AP50,
                 COCO_STATS_NAMES[2]: AP75,
-                COCO_STATS_NAMES[8]: AR,
-                "R@0.50": AR50,
-                "R@0.75": AR75,
-
+                "AR@.50:.05:.95": AR,
+                "AR@0.50": AR50,
+                "AR@0.75": AR75,
         }
 
 

@@ -17,7 +17,7 @@ from torch.optim.lr_scheduler import LinearLR
 import torchvision.models.detection as tv_detection
 from torchvision.models.detection import FasterRCNN
 
-from AleketDataset import AleketDataset
+from aleket_dataset import AleketDataset
 from metrics import LOSSES_NAMES, CocoEvaluator, Evaluator, COCO_STATS_NAMES
 from utils import StatsTracker, TrainingLogger, load_checkpoint, save_checkpoint
 
