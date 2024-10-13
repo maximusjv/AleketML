@@ -18,7 +18,7 @@ import torchvision.models.detection as tv_detection
 from torchvision.models.detection import FasterRCNN
 
 from AleketDataset import AleketDataset
-from metrics import LOSSES_NAMES, CocoEvaluator
+from metrics import LOSSES_NAMES, CocoEvaluator, Evaluator, COCO_STATS_NAMES
 from utils import StatsTracker, TrainingLogger, load_checkpoint, save_checkpoint
 
 
@@ -169,6 +169,8 @@ def evaluate(
     size = len(dataloader)
     model.eval()
 
+    e = Evaluator(dataloader.dataset)
+    dts = {}
     for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Evaluating batches", total=size):
         
         images = [img.to(device) for img in images]
@@ -180,9 +182,17 @@ def evaluate(
                 target["image_id"]: output
                 for target, output in zip(targets, predictions)
             }
+            dts.update(res)
             coco_eval.append(res)
-    
+
+
     stats = coco_eval.eval()
+    Evaluator.COCO = coco_eval
+    my_stats = e.eval(dts)
+    for name in COCO_STATS_NAMES:
+        if name in my_stats:
+            assert abs(my_stats[name] - stats[name]) < 1e-4
+
     coco_eval.clear_detections()
     
     return stats

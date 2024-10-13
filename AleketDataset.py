@@ -16,7 +16,6 @@ from torch.utils.data import Dataset
 import torchvision.transforms.v2 as v2
 import torchvision.tv_tensors as tv_tensors
 
-from utils import COCO_STATS_NAMES, LOSSES_NAMES
 
 # Downloads and extracts the dataset if it doesn't exist locally.
 def download_dataset(save_dir: str, patched_dataset_gdrive_id: str = ""):
