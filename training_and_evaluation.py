@@ -18,7 +18,7 @@ import torchvision.models.detection as tv_detection
 from torchvision.models.detection import FasterRCNN
 
 from aleket_dataset import AleketDataset
-from metrics import LOSSES_NAMES, CocoEvaluator, Evaluator, COCO_STATS_NAMES
+from metrics import LOSSES_NAMES, Evaluator
 from utils import StatsTracker, TrainingLogger, load_checkpoint, save_checkpoint
 
 
@@ -36,7 +36,7 @@ def train(run_name: str,
           momentum: float,
           weight_decay: float,
 
-          evaluator: CocoEvaluator,
+          evaluator: Evaluator,
 
           device: torch.device,
 
@@ -153,7 +153,7 @@ def train_one_epoch(
 def evaluate(
     model: tv_detection.FasterRCNN,
     dataloader: DataLoader,
-    coco_eval: CocoEvaluator,
+    evaluator: Evaluator,
     device: torch.device,
 ) -> dict[str, float]:
     """Evaluates the model on the given dataloader using COCO metrics.
@@ -168,9 +168,8 @@ def evaluate(
     """
     size = len(dataloader)
     model.eval()
-
-    e = Evaluator(dataloader.dataset)
     dts = {}
+
     for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Evaluating batches", total=size):
         
         images = [img.to(device) for img in images]
@@ -183,16 +182,6 @@ def evaluate(
                 for target, output in zip(targets, predictions)
             }
             dts.update(res)
-            coco_eval.append(res)
 
-
-    stats = coco_eval.eval()
-    Evaluator.COCO = coco_eval
-    my_stats = e.eval(dts)
-    for name in COCO_STATS_NAMES:
-        if name in my_stats:
-            assert abs(my_stats[name] - stats[name]) < 1e-4
-
-    coco_eval.clear_detections()
     
-    return stats
+    return evaluator.eval(dts)

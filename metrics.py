@@ -1,194 +1,62 @@
-# Standard Library
-import io
-from collections import defaultdict
-from contextlib import redirect_stdout
-from typing import Any
-
+import time
 # Third-party Libraries
 import numpy as np
 
-from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
-
 # PyTorch
 import torch
-from sympy.stats.sampling.sample_numpy import numpy
-from torch import Tensor
 from torch.utils.data import Dataset
 
 # Torchision
 from torchvision import ops
 
-
 # METRICS NAMES
-COCO_STATS_NAMES = ["AP@.50:.05:.95", "AP@0.5", "AP@0.75",
-                    "AP small", "AP medium", "AP large", "AR max=1",
-                    "AR max=10", "AR@.50:.05:.95", "AR small", "AR medium", "AR large"]
+VALIDATION_METRICS = ["AP@.50:.05:.95", "AP@0.5", "AP@0.75",
+                      "Recall@.50:.05:.95", "Recall@0.5", "Recall@0.75",
+                      "ACD", "AAD"]
+
 LOSSES_NAMES = ["loss", "loss_classifier", "loss_box_reg", 'loss_objectness', 'loss_rpn_box_reg']
 
 
-# COCO METRICS UTILS
-def convert_to_coco(dataset: Dataset):
-    """Converts a custom dataset to COCO API format.
-    Args:
-        dataset: The custom dataset to convert.
-
-    Returns:
-        A COCO dataset object.
-    """
-
-    coco_api_dataset = {"images": [], "categories": [], "annotations": []}
-    categories = set()
-    ann_id = 1
-
-    for idx in range(len(dataset)):
-        img, targets = dataset[idx]
-        img_id = targets["image_id"]
-
-        img_entry = {"id": img_id, "height": img.shape[-2], "width": img.shape[-1]}
-        coco_api_dataset["images"].append(img_entry)
-
-        bboxes = targets["boxes"]
-
-        areas = ((bboxes[:, 3] - bboxes[:, 1]) * (bboxes[:, 2] - bboxes[:, 0])).tolist()
-
-        bboxes[:, 2:] -= bboxes[:, :2]  # xyxy to xywh (coco format)
-        bboxes = bboxes.tolist()
-
-        labels = targets["labels"].tolist()
-        iscrowd = [0] * len(labels)
-
-        for i in range(len(labels)):
-            ann = {
-                "image_id": img_id,
-                "bbox": bboxes[i],
-                "category_id": labels[i],
-                "area": areas[i],
-                "iscrowd": iscrowd[i],
-                "id": ann_id,
-            }
-            categories.add(labels[i])
-            coco_api_dataset["annotations"].append(ann)
-            ann_id += 1
-
-    coco_api_dataset["categories"] = [
-        {"id": i} for i in sorted(categories)
-    ]  # TODO add names
-
-    with redirect_stdout(io.StringIO()):  # Suppress COCO output during creation
-        coco_ds = COCO()
-        coco_ds.dataset = coco_api_dataset
-        coco_ds.createIndex()
-    return coco_ds
-
-
-class CocoEvaluator:
-    """Evaluates object detection predictions using COCO metrics."""
-
-    def __init__(self, gt_dataset):
-        """Initializes the CocoEvaluator.
-        Args:
-            gt_dataset: The ground truth dataset, either a Dataset or a COCO dataset object.
-        """
-        if isinstance(gt_dataset, Dataset):
-            gt_dataset = convert_to_coco(gt_dataset)
-
-        self.coco_gt = gt_dataset
-        self.coco_dt = []
-        self.img_ids = set()
-
-    def clear_detections(self):
-        """Clears the stored detection results."""
-
-        self.coco_dt = []
-        self.img_ids = set()
-
-    def append(self, predictions: dict[int, dict]):
-        """Appends predictions to the evaluator.
-        Args:
-            predictions: A dictionary mapping image IDs to prediction dictionaries.
-        """
-        for image_id, prediction in predictions.items():
-
-            if image_id in self.img_ids:
-                raise ValueError(f"Duplicate prediction for image ID: {image_id}")
-            self.img_ids.add(image_id)
-
-            boxes = prediction["boxes"].clone()
-            boxes[:, 2:] -= boxes[:, :2]
-            boxes = boxes.tolist()
-            scores = prediction["scores"].tolist()
-            labels = prediction["labels"].tolist()
-
-            self.coco_dt.extend(
-                [
-                    {
-                        "image_id": image_id,
-                        "category_id": labels[k],
-                        "bbox": box,
-                        "score": scores[k],
-                    }
-                    for k, box in enumerate(boxes)
-                ]
-            )
-
-    def eval(self):
-        """Evaluates the accumulated predictions.
-        Returns:
-            A dictionary of COCO evaluation statistics.
-        """
-        stats = np.zeros(12)
-        if self.coco_dt:
-            with redirect_stdout(io.StringIO()):  # Suppress COCO output during evaluation
-                coco_dt = self.coco_gt.loadRes(self.coco_dt)
-                coco = COCOeval(self.coco_gt, coco_dt, iouType="bbox")
-                coco.evaluate()
-                coco.accumulate()
-                coco.summarize()
-                stats = coco.stats
-            self.coco_ev = coco
-        return {key: value for key, value in zip(COCO_STATS_NAMES, stats)}
-
-
-def prepare_gts(dataset: Dataset) -> tuple[dict[tuple[str, int], Tensor], list, list]:
+def prepare_gts(dataset: Dataset) -> tuple[dict[tuple[str, int], np.ndarray], list, list]:
     gts = {}
     categories = set()
     image_ids = set()
 
     for _, target in dataset:
         img_id = target["image_id"]
-        bbox = target["boxes"].cpu()
-        labels = target["labels"].cpu()
+        bbox = target["boxes"].cpu().numpy()
+        labels = target["labels"].cpu().numpy()
 
         image_ids.add(img_id)
         categories.update(labels.tolist())
 
         for label in categories:
-            ind = torch.where(labels == label)
+            ind = np.where(labels == label)
             if len(bbox[ind]) != 0:
                 gts[img_id, label] = bbox[ind]
 
     return gts, sorted(image_ids), sorted(categories)
 
 
-def prepare_dts(predictions: dict[str, dict[str, Tensor]]) -> dict[tuple[str, int], tuple[Tensor, Tensor]]:
+def prepare_dts(predictions: dict[str, dict[str, torch.Tensor]]
+                ) -> dict[tuple[str, int], tuple[np.ndarray, np.ndarray]]:
     dts = dict()
     categories = set()
 
     for img_id, preds in predictions.items():
-        labels = preds["labels"].cpu().to(dtype=torch.float64)
-        bbox = preds["boxes"].cpu().to(dtype=torch.float64)
-        scores = preds["scores"].cpu().to(dtype=torch.float64)
+        labels = preds["labels"].cpu().numpy()
+        bbox = preds["boxes"].cpu().numpy()
+        scores = preds["scores"].cpu().numpy()
 
         categories.update(labels.tolist())
 
         for cat in categories:
 
-            ind = torch.where(labels == cat)
+            ind = np.where(labels == cat)
             bbox_filtered = bbox[ind]
             scores_filtered = scores[ind]
 
-            ind = torch.argsort(scores_filtered, descending=True, stable=True)  # sort detections by score
+            ind = np.argsort(-scores_filtered, kind="mergesort")  # sort detections by score
 
             if len(bbox_filtered[ind]) != 0:
                 dts[img_id, cat] = bbox_filtered[ind], scores_filtered[ind]
@@ -196,14 +64,14 @@ def prepare_dts(predictions: dict[str, dict[str, Tensor]]) -> dict[tuple[str, in
     return dts
 
 
-def match_gts_dts(gts: Tensor,
-                  dts:  Tensor,
-                  iou_matrix: Tensor,
-                  iou_thresh: float) -> tuple[Tensor, Tensor]:
+def match_gts_dts(gts: np.ndarray,
+                  dts:  np.ndarray,
+                  iou_matrix: np.ndarray,
+                  iou_thresh: float) -> tuple[np.ndarray, np.ndarray]:
 
     # assumes that predictions already sorted
-    dt_matches = torch.zeros(len(dts))
-    gt_matches = torch.zeros(len(gts))
+    dt_matches = np.zeros(len(dts))
+    gt_matches = np.zeros(len(gts))
 
     for dind, _ in enumerate(dts):
         iou = iou_thresh
@@ -226,24 +94,25 @@ def match_gts_dts(gts: Tensor,
     return gt_matches, dt_matches
 
 
-def pr_eval(gt_matches: Tensor, dt_matches: Tensor, dt_scores: Tensor, recall_thrs: Tensor):
+def pr_eval(gt_matches: np.ndarray, dt_matches: np.ndarray, dt_scores: np.ndarray, recall_thrs: np.ndarray):
 
-    inds = torch.argsort(dt_scores, stable=True, descending=True)
+    inds = np.argsort(-dt_scores, kind="mergesort")
     dt_matches = dt_matches[inds]
 
-    tps = torch.cumsum(dt_matches, dim=0, dtype=torch.float64)
-    fps = torch.cumsum(torch.logical_not(dt_matches), dim=0, dtype=torch.float64)
+    tps = np.cumsum(dt_matches, axis=0, dtype=float)
+    fps = np.cumsum(np.logical_not(dt_matches), axis=0, dtype=float)
 
     rc = tps / len(gt_matches)
     pr = tps / (fps + tps + np.spacing(1))
 
+    pr = pr.tolist()
     # Interpolate precision
     for i in range(len(pr) - 1, 0, -1):
         if pr[i] > pr[i - 1]:
             pr[i - 1] = pr[i]
 
-    inds = torch.searchsorted(rc, recall_thrs, side='left')
-    pr_curve = torch.zeros((len(recall_thrs),))
+    inds = np.searchsorted(rc, recall_thrs, side='left')
+    pr_curve = np.zeros(len(recall_thrs)).tolist()
 
     for ri, pi in enumerate(inds):
         pr_curve[ri] = pr[pi] if pi < len(pr) else 0
@@ -251,34 +120,75 @@ def pr_eval(gt_matches: Tensor, dt_matches: Tensor, dt_scores: Tensor, recall_th
     return {
         "recall": rc[-1] if len(rc) > 0 else 0,
         "precision": pr[-1] if len(pr) > 0 else 0,
-        "pr_curve": pr_curve,
+        "pr_curve": np.array(pr_curve),
     }
 
 
+def area_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
+
+    gt_area = np.sum((gt[:, 2] - gt[:, 0]) * (gt[:, 3] - gt[:, 1])) if len(gt) != 0 else 0
+    dt_area = np.sum((dt[:, 2] - dt[:, 0]) * (dt[:, 3] - dt[:, 1])) if len(dt) != 0 else 0
+
+    mean = (dt_area + gt_area) / 2.0
+
+    return abs(gt_area - dt_area) / mean if mean != 0 else 0
+
+
+def count_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
+    gt_count = len(gt)
+    dt_count = len(dt)
+
+    mean = (gt_count + dt_count) / 2.0
+    return abs(gt_count - dt_count) / mean if mean != 0 else 0
 
 
 class Evaluator:
     max_dets = 100
-    COCO = None
+
     def __init__(self, ds: Dataset):
         (self.gts,
          self.images_id,
          self.categories) = prepare_gts(ds)
 
-        self.recall_thrs = torch.linspace(.0, 1.00, 101)
-        self.iou_thrs = torch.linspace(.50, 0.95, 10)
+        self.recall_thrs = np.linspace(.0, 1.00, 101)
+        self.iou_thrs = np.linspace(.50, 0.95, 10).tolist()
 
-    def _pr_eval_by_iou(self, dts: dict[tuple[str, int], tuple[Tensor, Tensor]], iou_thrs: Tensor):
+        self.eval_res = {}
+
+    def _quantitative_eval(self, dts: dict[tuple[str, int], tuple[np.ndarray, np.ndarray]]):
+
+        I = len(self.images_id)
+        K = len(self.categories)
+
+        AD = np.zeros((K, I))  # area difference over gt area
+        CD = np.zeros((K, I))  # count difference over gt count
+
+        for c, cat in enumerate(self.categories):
+            for i, image_id in enumerate(self.images_id):
+                gt = self.gts.get((image_id, cat), np.empty((0, 4)))
+                dt, score = dts.get((image_id, cat), (np.empty((0, 4)), np.empty(0)))
+
+                AD[c, i] = area_relative_diff(gt, dt)
+                CD[c, i] = count_relative_diff(gt, dt)
+
+
+
+        return {
+            "AAD": AD.mean(),
+            "ACD": CD.mean()
+        }
+
+    def _pr_eval_by_iou(self, dts: dict[tuple[str, int], tuple[np.ndarray, np.ndarray]], iou_thrs: list):
 
         T = len(iou_thrs)
         K = len(self.categories)
         R = len(self.recall_thrs)
 
-        pr_curve = torch.zeros((T, R, K))
-        precision = torch.zeros((T, K, ))
-        recall = torch.zeros((T, K, ))
+        pr_curve = np.zeros((T, K, R))
+        precision = np.zeros((T, K, ))
+        recall = np.zeros((T, K, ))
 
-        for t, iou_thresh in enumerate(iou_thrs.tolist()):
+        for t, iou_thresh in enumerate(iou_thrs):
             for c, cat in enumerate(self.categories):
                 gt_matches = []
                 dt_matches = []
@@ -286,8 +196,8 @@ class Evaluator:
 
                 for image_id in self.images_id:
 
-                    gt = self.gts.get((image_id, cat), torch.empty((0,4)))
-                    dt, score = dts.get((image_id, cat), (torch.empty((0,4)), torch.empty(0)))
+                    gt = self.gts.get((image_id, cat), np.empty((0,4)))
+                    dt, score = dts.get((image_id, cat), (np.empty((0,4)), np.empty(0)))
 
 
                     if len(dt) == 0 and len(gt) == 0:
@@ -297,10 +207,12 @@ class Evaluator:
                         dt = dt[:Evaluator.max_dets]
                         score = score[:Evaluator.max_dets]
 
-                    gt_match, dt_match = torch.zeros(len(gt)), torch.zeros(len(dt))
+                    gt_match, dt_match = np.zeros(len(gt)), np.zeros(len(dt))
                     if len(gt) != 0 and len(dt) != 0:
                         # Compute IoU
-                        iou_matrix = ops.box_iou(dt, gt)
+                        iou_matrix = ops.box_iou(
+                            torch.as_tensor(dt),
+                            torch.as_tensor(gt)).numpy()
                         gt_match, dt_match = match_gts_dts(gt, dt, iou_matrix, iou_thresh)
 
                     gt_matches.extend(gt_match)
@@ -310,12 +222,12 @@ class Evaluator:
                 if not gt_matches:
                     continue
 
-                gt_matches = torch.as_tensor(gt_matches)
-                dt_matches = torch.as_tensor(dt_matches)
-                dt_scores = torch.as_tensor(dt_scores)
+                gt_matches = np.array(gt_matches)
+                dt_matches = np.array(dt_matches)
+                dt_scores = np.array(dt_scores)
 
                 pr_res = pr_eval(gt_matches, dt_matches, dt_scores, self.recall_thrs)
-                pr_curve[t, :, c] = pr_res["pr_curve"]
+                pr_curve[t, c] = pr_res["pr_curve"]
                 precision[t, c] = pr_res["precision"]
                 recall[t, c] = pr_res["recall"]
 
@@ -326,13 +238,9 @@ class Evaluator:
         }
 
 
-
-    def eval(self, dts: dict[str, dict[str, Tensor]]):
-
+    def eval(self, dts: dict[str, dict[str, torch.Tensor]]):
         dts = prepare_dts(dts)
-
         pr_res = self._pr_eval_by_iou(dts, iou_thrs=self.iou_thrs)
-
 
         pr_curve = pr_res["pr_curve"]
         precision = pr_res["precision"]
@@ -342,21 +250,21 @@ class Evaluator:
 
         pr = pr_curve[pr_curve > -1]
         if len(pr) > 0:
-            mAP = torch.mean(pr).item()
+            mAP = np.mean(pr)
         else:
             mAP = -1
 
         pr = pr_curve[0, :, :]
         pr = pr[pr > -1]
         if len(pr) > 0:
-            AP50 = torch.mean(pr).item()
+            AP50 = np.mean(pr)
         else:
             AP50 = -1
 
         pr = pr_curve[5, :, :]
         pr = pr[pr > -1]
         if len(pr) > 0:
-            AP75 = torch.mean(pr).item()
+            AP75 = np.mean(pr)
         else:
             AP75 = -1
 
@@ -364,33 +272,36 @@ class Evaluator:
 
         r = recall[recall > -1]
         if len(pr) > 0:
-            AR = torch.mean(r).item()
+            AR = np.mean(r)
         else:
             AR = -1
 
         r = recall[0, :]
         r = r[r > -1]
         if len(r) > 0:
-            AR50 = torch.mean(r).item()
+            AR50 = np.mean(r)
         else:
             AR50 = -1
 
         r = recall[5, :]
         r = r[r > -1]
         if len(r) > 0:
-            AR75 = torch.mean(r).item()
+            AR75 = np.mean(r)
         else:
             AR75 = -1
 
-        return {
-                COCO_STATS_NAMES[0]: mAP,
-                COCO_STATS_NAMES[1]: AP50,
-                COCO_STATS_NAMES[2]: AP75,
-                "AR@.50:.05:.95": AR,
-                "AR@0.50": AR50,
-                "AR@0.75": AR75,
+
+        q_results = self._quantitative_eval(dts)
+
+        AAD = q_results["AAD"]
+        ACD = q_results["ACD"]
+
+        self.eval_res = {
+            "pr_curve": pr_curve,
+            "recall": recall,
+            "precision": precision,
+
         }
 
-
-
-
+        metrics = [mAP, AP50, AP75, AR, AR50, AR75, AAD, ACD]
+        return dict(zip(VALIDATION_METRICS,metrics))

@@ -15,9 +15,7 @@ from torchvision.models.detection import FasterRCNN
 
 
 from aleket_dataset import AleketDataset
-from metrics import COCO_STATS_NAMES, LOSSES_NAMES
-
-
+from metrics import VALIDATION_METRICS, LOSSES_NAMES
 
 def split_dataset(dataset: AleketDataset,
                   dataset_fraction: float, 
@@ -114,7 +112,7 @@ class StatsTracker:
             if not os.path.exists(self.stats_file):
                 with open(self.stats_file, 'w', newline='') as csvfile:
                     writer = csv.writer(csvfile)
-                    writer.writerow(COCO_STATS_NAMES + LOSSES_NAMES)
+                    writer.writerow(VALIDATION_METRICS + LOSSES_NAMES)
 
     def update_stats(self, train_losses: dict[str, float], eval_coco_metrics: dict[str, float]):
 
@@ -188,11 +186,11 @@ class TrainingLogger:
         for metric_name, metric_value in eval_coco_metrics.items():
             print(f"\tValidation {metric_name}: {metric_value:.3f}")
 
-        if self.best_val_metric is None or eval_coco_metrics[COCO_STATS_NAMES[0]] > self.best_val_metric:
-            self.best_val_metric = eval_coco_metrics[COCO_STATS_NAMES[0]]
-            print(f"\tNew Best Validation {COCO_STATS_NAMES[0]}: {self.best_val_metric:.3f}")
+        if self.best_val_metric is None or eval_coco_metrics[VALIDATION_METRICS[0]] > self.best_val_metric:
+            self.best_val_metric = eval_coco_metrics[VALIDATION_METRICS[0]]
+            print(f"\tNew Best Validation {VALIDATION_METRICS[0]}: {self.best_val_metric:.3f}")
         else:
-            print(f"\tBest Validation {COCO_STATS_NAMES[0]}: {self.best_val_metric:.3f}")
+            print(f"\tBest Validation {VALIDATION_METRICS[0]}: {self.best_val_metric:.3f}")
         
 
 
