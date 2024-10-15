@@ -22,11 +22,12 @@ from metrics import LOSSES_NAMES, Evaluator
 from utils import StatsTracker, TrainingLogger, load_checkpoint, save_checkpoint
 
 
+
 def train(run_name: str,
           model:FasterRCNN,
 
           dataset: AleketDataset,
-          default_transforms: v2.Transform, training_transforms: v2.Transform,
+          augmentation: v2.Transform,
           train_dataloader: DataLoader, val_dataloader: DataLoader,
 
           total_epochs: int,
@@ -73,12 +74,12 @@ def train(run_name: str,
         if verbose:
             logger.log_epoch_start(epoch, total_epochs, lr_scheduler.get_last_lr()[0])
 
-        dataset.transforms = training_transforms
+        dataset.augmentation = None
         losses = train_one_epoch(
             model, optimizer, train_dataloader, device
         )
 
-        dataset.transforms = default_transforms
+        dataset.augmentation = augmentation
         eval_stats = evaluate(
             model, val_dataloader, evaluator, device
         )

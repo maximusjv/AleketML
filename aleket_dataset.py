@@ -23,7 +23,7 @@ def download_dataset(save_dir: str, patched_dataset_gdrive_id: str = ""):
 
     Args:
         save_dir: The directory to save the dataset.
-
+        patched_dataset_gdrive_id: GoogleDrive id to download the dataset from.
     Returns:
         The path to the saved dataset directory.
     """
@@ -48,13 +48,15 @@ class AleketDataset(Dataset):
     def __init__(
         self,
         dataset_dir: str,
-        transforms: Optional[v2.Transform] = None
+        img_size: int,
+        augmentation: Optional[v2.Transform] = None
     ) -> None:
         """Initializes the AleketDataset.
 
         Args:
             dataset_dir: Directory containing the 'imgs' folder and 'dataset.json'.
-            transforms: Optional torchvision transforms to apply to the data.
+            img_size: Size to resize the image to.
+            augmentation: Optional torchvision transforms to apply to the data.
         """
         self.img_dir = os.path.join(dataset_dir, "imgs")
         
@@ -67,9 +69,13 @@ class AleketDataset(Dataset):
             s = x.split('_')
             return int(s[0]), int(s[1])
         
-        self.images.sort(key=get_key) 
-        
-        self.transforms = transforms
+        self.images.sort(key=get_key)
+
+
+        self.default_transforms = v2.Compose(
+            [v2.Resize(size=img_size), v2.ToDtype(torch.float32, scale=True), ]
+        )
+        self.augmentation = augmentation
         print(f"Dataset loaded from {dataset_dir}")
 
     def by_full_images(self) -> dict[str, list[int]]:
@@ -101,8 +107,10 @@ class AleketDataset(Dataset):
         labels = torch.as_tensor(labels)
         bboxes = tv_tensors.BoundingBoxes(bboxes, format="XYXY", canvas_size=(wt, ht))
         
-        if self.transforms:
-            img, bboxes, labels = self.transforms(img, bboxes, labels)
+        if self.augmentation:
+            img, bboxes, labels = self.augmentation(img, bboxes, labels)
+
+        img, bboxes, labels = self.default_transforms(img, bboxes, labels)
 
         target = {
             "boxes": bboxes,
