@@ -48,6 +48,9 @@ def split_dataset(dataset: AleketDataset,
     
     return train_set, validation_set
     
+def collate_fn(batch):
+    """Collates data samples into batches for the dataloader."""
+    return tuple(zip(*batch))
 
 # Dataset split
 def create_dataloaders(
@@ -68,9 +71,7 @@ def create_dataloaders(
         A tuple containing the training DataLoader and the validation DataLoader.
     """
     
-    def collate_fn(batch):
-        """Collates data samples into batches for the dataloader."""
-        return tuple(zip(*batch))
+
 
     # Create training and validation subsets
     train_dataset = Subset(dataset, train_indices)

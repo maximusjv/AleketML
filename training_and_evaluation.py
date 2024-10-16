@@ -1,6 +1,8 @@
 # Standard Library
 import os
 import math
+import shutil
+from typing import Any
 
 # Third-party Libraries
 from torchvision.transforms import v2
@@ -11,7 +13,7 @@ import torch
 from torch import optim
 from torch.optim import SGD
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import LinearLR
+from torch.optim.lr_scheduler import LinearLR, MultiStepLR
 
 # Torchvision
 import torchvision.models.detection as tv_detection
@@ -19,26 +21,144 @@ from torchvision.models.detection import FasterRCNN
 
 from aleket_dataset import AleketDataset
 from metrics import LOSSES_NAMES, Evaluator
-from utils import StatsTracker, TrainingLogger, load_checkpoint, save_checkpoint
+from utils import StatsTracker, TrainingLogger, load_checkpoint, save_checkpoint, create_dataloaders
+
+
+class TrainParams:
+    def __init__(self,
+                 run_name: str,
+                 augmentation: dict[str, Any],
+                 train_set: dict[str, list[int]],
+                 validation_set: dict[str, list[int]],
+                 batch_size: int,
+                 dataloader_workers: int,
+                 total_epochs: int,
+
+                 lr: float,
+                 lr_decay_factor: float,
+                 lr_decay_milestones: list[int],
+                 momentum: float,
+                 weight_decay: float):
+
+        self.run_name = run_name
+        self.augmentation = augmentation
+        self.train_set = train_set
+        self.validation_set = validation_set
+        self.batch_size = batch_size
+        self.dataloader_workers = dataloader_workers
+        self.total_epochs = total_epochs
+        self.lr = lr
+        self.lr_decay_factor = lr_decay_factor
+        self.lr_decay_milestones = lr_decay_milestones
+        self.momentum = momentum
+        self.weight_decay = weight_decay
+
+
+def default_params(name: str, train_set: dict[str, list[int]], validation_set: dict[str, list[int]]) -> TrainParams:
+    augmentation = {
+        "horizontal_flip": {
+            "p": 0.5
+        },
+        "vertical_flip": {
+            "p": 0.5
+        },
+        "perspective": {
+            "distortion_scale": 0.1,
+            "p": 0.5
+        },
+        "affine": {
+            "degrees": 10,
+            "translate": (0,0),
+            "scale": (1,1),
+        },
+        "color_jitter": {
+            "brightness": 0,
+            "contrast": 0,
+            "saturation": 0,
+            "hue": 0,
+        },
+        "sharpness":{
+          "p": 0.2,
+          "sharpness_factor": 0.2
+        }
+    }
+    return TrainParams(
+        run_name=name,
+        augmentation=augmentation,
+        train_set=train_set,
+        validation_set=validation_set,
+        batch_size=32,
+        dataloader_workers=4,
+        total_epochs=100,
+        lr=1e-3,
+        lr_decay_factor=0.1,
+        lr_decay_milestones=[50],
+        momentum=0.9,
+        weight_decay=1e-4,
+    )
 
 
 
-def train(run_name: str,
-          model:FasterRCNN,
+def parse_params(params: TrainParams, model:FasterRCNN, dataset: AleketDataset):
 
+    train_indices = []
+    val_indices = []
+
+    for indices in params.train_set.values():
+        train_indices.extend(indices)
+    for indices in params.validation_set.values():
+        val_indices.extend(indices)
+
+    train_dataloader, val_dataloader = create_dataloaders(dataset,
+                                                          train_indices,
+                                                          val_indices,
+                                                          params.batch_size,
+                                                          params.dataloader_workers)
+
+    optimizer = SGD(model.parameters(), lr=params.lr, momentum=params.momentum, weight_decay=params.weight_decay)
+    lr_scheduler = MultiStepLR(
+        optimizer, milestones=params.lr_decay_milestones, gamma=params.lr_decay_factor
+    )
+    run_path = os.path.join("results", params.run_name)
+    total_epochs = params.total_epochs
+
+    augmentation_list = []
+
+    if "horizontal_flip" in params.augmentation:
+        augmentation_list.append(v2.RandomHorizontalFlip(**params.augmentation["horizontal_flip"]))
+
+    if "vertical_flip" in params.augmentation:
+        augmentation_list.append(v2.RandomHorizontalFlip(**params.augmentation["vertical_flip"]))
+
+    if "perspective" in params.augmentation:
+        augmentation_list.append(v2.RandomPerspective(**params.augmentation["perspective"]))
+
+    if "affine" in params.augmentation:
+        augmentation_list.append(v2.RandomAffine(**params.augmentation["affine"]))
+
+    if "color_jitter" in params.augmentation:
+        augmentation_list.append(v2.ColorJitter(**params.augmentation["color_jitter"]))
+
+    if "sharpness" in params.augmentation:
+        augmentation_list.append(v2.RandomAdjustSharpness(**params.augmentation["sharpness"]))
+
+    augmentation = v2.Compose(augmentation_list)
+
+    return {
+        "train_loader": train_dataloader,
+        "val_loader": val_dataloader,
+        "optimizer": optimizer,
+        "lr_scheduler": lr_scheduler,
+        "augmentation": augmentation,
+        "total_epochs": total_epochs,
+        "run_path": run_path,
+    }
+
+
+
+def train(model:FasterRCNN,
           dataset: AleketDataset,
-          augmentation: v2.Transform,
-          train_dataloader: DataLoader, val_dataloader: DataLoader,
-
-          total_epochs: int,
-          warmup_epochs: int,
-
-          learning_rate: float,
-          momentum: float,
-          weight_decay: float,
-
-          evaluator: Evaluator,
-
+          params: TrainParams,
           device: torch.device,
 
           resume: bool = False,
@@ -46,26 +166,35 @@ def train(run_name: str,
           verbose: bool = True,
           ):
 
+    parsed_params = parse_params(params, model, dataset)
+    train_dataloader = parsed_params["train_loader"]
+    val_dataloader = parsed_params["val_loader"]
+    optimizer = parsed_params["optimizer"]
+    lr_scheduler = parsed_params["lr_scheduler"]
+    augmentation = parsed_params["augmentation"]
+    total_epochs = parsed_params["total_epochs"]
+    result_path = parsed_params["run_path"]
 
-    optimizer = SGD(model.parameters(), lr=learning_rate*10, momentum=momentum, weight_decay=weight_decay)
-    lr_scheduler = LinearLR(
-        optimizer, start_factor=1, end_factor=0.1, total_iters=warmup_epochs
-    )
 
-    result_path = os.path.abspath(f"result_{run_name}")
-    os.makedirs(os.path.join(run_name, "checkpoints"), exist_ok=True)
-    last_checkpoint_path = os.path.join(result_path, "run", "last.pth")
-    best_checkpoint_bath = os.path.join(result_path, "run", "best.pth")
+    last_checkpoint_path = os.path.join(result_path, "checkpoints", "last.pth")
+    best_checkpoint_bath = os.path.join(result_path, "checkpoints", "best.pth")
+
     validation_graph = os.path.join(result_path, "validation_graph")
     validation_log = os.path.join(result_path, "validation_log.csv")
 
-    epoch_trained = 0
-    stats_tracker = StatsTracker(validation_log)
-    logger = TrainingLogger()
+    evaluator = Evaluator(val_dataloader.dataset)
 
     if resume:
         print(f"Resuming from  {last_checkpoint_path}...")
         model, optimizer, lr_scheduler, epoch_trained = load_checkpoint(model, last_checkpoint_path)
+    else:
+        if os.path.exists(result_path):
+            shutil.rmtree(result_path)
+
+    os.makedirs(os.path.join(result_path, "checkpoints"), exist_ok=True)
+    epoch_trained = 0
+    stats_tracker = StatsTracker(validation_log)
+    logger = TrainingLogger()
 
     while epoch_trained < total_epochs:
 
