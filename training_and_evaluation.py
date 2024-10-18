@@ -1,4 +1,5 @@
 # Standard Library
+import json
 import os
 import math
 import shutil
@@ -13,7 +14,7 @@ import torch
 from torch import optim
 from torch.optim import SGD
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import LinearLR, MultiStepLR
+from torch.optim.lr_scheduler import MultiStepLR
 
 # Torchvision
 import torchvision.models.detection as tv_detection
@@ -24,26 +25,88 @@ from metrics import LOSSES_NAMES, Evaluator
 from utils import StatsTracker, TrainingLogger, load_checkpoint, save_checkpoint, create_dataloaders
 
 
-class TrainParams:
-    def __init__(self,
-                 run_name: str,
-                 augmentation: dict[str, Any],
-                 train_set: dict[str, list[int]],
-                 validation_set: dict[str, list[int]],
-                 batch_size: int,
-                 dataloader_workers: int,
-                 total_epochs: int,
+def default_augmentation() -> dict:
+    """
+    Returns a dictionary containing default augmentation settings.
 
-                 lr: float,
-                 lr_decay_factor: float,
-                 lr_decay_milestones: list[int],
-                 momentum: float,
-                 weight_decay: float):
+    The augmentation settings include random horizontal flip, vertical flip, perspective
+    transformation, rotation, color jitter, and sharpness adjustment. Each augmentation
+    has a probability (`p`) of being applied, and some have additional parameters
+    like `distortion_scale`, `degrees`, etc.
+
+    Returns:
+        dict: A dictionary with augmentation settings.
+    """
+    return {
+        "horizontal_flip": {
+            "p": 0.5
+        },
+        "vertical_flip": {
+            "p": 0.5
+        },
+        "perspective": {
+            "distortion_scale": 0.05,
+            "p": 0.1
+        },
+        "rotation": {
+            "degrees": 10,
+            "expand": True
+        },
+        "color_jitter": {
+            "brightness": 0.05,
+            "contrast": 0.05,
+            "saturation": 0.05,
+            "hue": 0.05,
+        },
+        "sharpness":{
+          "p": 0.2,
+          "sharpness_factor": 0.05
+        }
+    }
+
+
+class TrainParams:
+    """
+    Stores and manages training parameters.
+
+    Attributes:
+        run_name (str): Name of the training run.
+        train_set (dict): Dictionary specifying the training set indices.
+        validation_set (dict): Dictionary specifying the validation set indices.
+        augmentation (dict): Augmentation settings.
+        batch_size (int): Batch size for training.
+        dataloader_workers (int): Number of workers for the dataloader.
+        total_epochs (int): Total number of training epochs.
+        lr (float): Learning rate.
+        lr_decay_factor (float): Factor for learning rate decay.
+        lr_decay_milestones (list): Epochs at which to decay the learning rate.
+        momentum (float): Momentum for the optimizer.
+        weight_decay (float): Weight decay for the optimizer.
+
+    Methods:
+        load(path): Loads parameters from a JSON file.
+        save(path): Saves parameters to a JSON file.
+    """
+    
+    def __init__(self,
+                 run_name: str = "default",
+                 train_set: dict[str, list[int]] = {},
+                 validation_set: dict[str, list[int]] = {},
+
+                 augmentation: dict[str, Any] = default_augmentation(),
+                 batch_size: int = 16,
+                 dataloader_workers: int = 16,
+                 total_epochs: int = 100,
+
+                 lr: float = 1e-3,
+                 lr_decay_factor: float = 0.1,
+                 lr_decay_milestones: list[int] = [50, 90],
+                 momentum: float = 0.9,
+                 weight_decay: float = 1e-4):
 
         self.run_name = run_name
         self.augmentation = augmentation
-        self.train_set = train_set
-        self.validation_set = validation_set
+
         self.batch_size = batch_size
         self.dataloader_workers = dataloader_workers
         self.total_epochs = total_epochs
@@ -52,55 +115,37 @@ class TrainParams:
         self.lr_decay_milestones = lr_decay_milestones
         self.momentum = momentum
         self.weight_decay = weight_decay
+        
+        self.train_set = train_set
+        self.validation_set = validation_set
+        
+    def load(self, path: str):
+        """Loads parameters from a JSON file."""
+        with open(path, 'r') as file: 
+            state = json.load(file)
+        self.__dict__.update(**state)
 
-
-def default_params(name: str, train_set: dict[str, list[int]], validation_set: dict[str, list[int]]) -> TrainParams:
-    augmentation = {
-        "horizontal_flip": {
-            "p": 0.5
-        },
-        "vertical_flip": {
-            "p": 0.5
-        },
-        "perspective": {
-            "distortion_scale": 0.1,
-            "p": 0.5
-        },
-        "affine": {
-            "degrees": 10,
-            "translate": (0,0),
-            "scale": (1,1),
-        },
-        "color_jitter": {
-            "brightness": 0,
-            "contrast": 0,
-            "saturation": 0,
-            "hue": 0,
-        },
-        "sharpness":{
-          "p": 0.2,
-          "sharpness_factor": 0.2
-        }
-    }
-    return TrainParams(
-        run_name=name,
-        augmentation=augmentation,
-        train_set=train_set,
-        validation_set=validation_set,
-        batch_size=32,
-        dataloader_workers=4,
-        total_epochs=100,
-        lr=1e-3,
-        lr_decay_factor=0.1,
-        lr_decay_milestones=[50],
-        momentum=0.9,
-        weight_decay=1e-4,
-    )
+    def save(self, path: str):
+        """Saves parameters to a JSON file."""
+        with open(path, 'w') as file: 
+            json.dump(self.__dict__, file, indent=1)
 
 
 
 def parse_params(params: TrainParams, model:FasterRCNN, dataset: AleketDataset):
+    """
+    Parses training parameters and sets up training components.
 
+    Args:
+        params (TrainParams): Training parameters.
+        model (FasterRCNN): The Faster R-CNN model.
+        dataset (AleketDataset): The dataset.
+
+    Returns:
+        dict: A dictionary containing the training dataloader, validation dataloader,
+              optimizer, learning rate scheduler, augmentation pipeline, total epochs,
+              and run path.
+    """
     train_indices = []
     val_indices = []
 
@@ -133,8 +178,8 @@ def parse_params(params: TrainParams, model:FasterRCNN, dataset: AleketDataset):
     if "perspective" in params.augmentation:
         augmentation_list.append(v2.RandomPerspective(**params.augmentation["perspective"]))
 
-    if "affine" in params.augmentation:
-        augmentation_list.append(v2.RandomAffine(**params.augmentation["affine"]))
+    if "rotation" in params.augmentation:
+        augmentation_list.append(v2.RandomRotation(**params.augmentation["rotation"]))
 
     if "color_jitter" in params.augmentation:
         augmentation_list.append(v2.ColorJitter(**params.augmentation["color_jitter"]))
@@ -165,7 +210,18 @@ def train(model:FasterRCNN,
           checkpoints: bool = False,
           verbose: bool = True,
           ):
+    """
+    Trains the Faster R-CNN model.
 
+    Args:
+        model (FasterRCNN): The Faster R-CNN model.
+        dataset (AleketDataset): The dataset.
+        params (TrainParams): Training parameters.
+        device (torch.device): The device to train on (e.g., 'cuda' or 'cpu').
+        resume (bool): Whether to resume training from a checkpoint.
+        checkpoints (bool): Whether to save checkpoints during training.
+        verbose (bool): Whether to print training progress.
+    """
     parsed_params = parse_params(params, model, dataset)
     train_dataloader = parsed_params["train_loader"]
     val_dataloader = parsed_params["val_loader"]
@@ -178,9 +234,10 @@ def train(model:FasterRCNN,
 
     last_checkpoint_path = os.path.join(result_path, "checkpoints", "last.pth")
     best_checkpoint_bath = os.path.join(result_path, "checkpoints", "best.pth")
-
+    params_path = os.path.join(result_path, "params.json")
     validation_graph = os.path.join(result_path, "validation_graph")
     validation_log = os.path.join(result_path, "validation_log.csv")
+    
 
     evaluator = Evaluator(val_dataloader.dataset)
 
@@ -192,6 +249,9 @@ def train(model:FasterRCNN,
             shutil.rmtree(result_path)
 
     os.makedirs(os.path.join(result_path, "checkpoints"), exist_ok=True)
+    
+    params.save(params_path)
+    
     epoch_trained = 0
     stats_tracker = StatsTracker(validation_log)
     logger = TrainingLogger()
@@ -203,12 +263,12 @@ def train(model:FasterRCNN,
         if verbose:
             logger.log_epoch_start(epoch, total_epochs, lr_scheduler.get_last_lr()[0])
 
-        dataset.augmentation = None
+        dataset.augmentation = augmentation
         losses = train_one_epoch(
             model, optimizer, train_dataloader, device
         )
 
-        dataset.augmentation = augmentation
+        dataset.augmentation = None
         eval_stats = evaluate(
             model, val_dataloader, evaluator, device
         )
@@ -238,14 +298,19 @@ def train_one_epoch(
     dataloader: DataLoader,
     device: torch.device,
 ) -> dict[str, float]:
-    """Trains the model for one epoch.
+    """
+    Trains the model for one epoch.
+
     Args:
-        model: The Faster R-CNN model.
-        optimizer: The optimizer for training.
-        dataloader: The training dataloader.
-        device: The device to use for training (e.g., 'cuda' or 'cpu').
+        model (tv_detection.FasterRCNN): The Faster R-CNN model.
+        optimizer (optim.Optimizer): The optimizer for training.
+        dataloader (DataLoader): The training dataloader.
+        device (torch.device): The device to use for training (e.g., 'cuda' or 'cpu').
+
     Returns:
-        The average loss for the epoch.
+        dict[str, float]: A dictionary containing the average losses for the epoch.
+                          The keys are the loss names (e.g., 'loss', 'loss_classifier', etc.)
+                          and the values are the corresponding average loss values.
     """
     model.train()
     size = len(dataloader)
@@ -286,15 +351,17 @@ def evaluate(
     evaluator: Evaluator,
     device: torch.device,
 ) -> dict[str, float]:
-    """Evaluates the model on the given dataloader using COCO metrics.
+    """
+    Evaluates the model on the given dataloader using metrics.
+
     Args:
-        model: The Faster R-CNN model to evaluate.
-        dataloader: The dataloader containing the evaluation data.
-        coco_eval: The COCO evaluator object for calculating metrics.
-        device: The device to run the evaluation on (e.g., 'cuda' or 'cpu').
+        model (tv_detection.FasterRCNN): The Faster R-CNN model to evaluate.
+        dataloader (DataLoader): The dataloader containing the evaluation data.
+        evaluator (Evaluator): The evaluator object for calculating metrics.
+        device (torch.device): The device to run the evaluation on (e.g., 'cuda' or 'cpu').
 
     Returns:
-        A dictionary containing the COCO evaluation statistics.
+        dict[str, float]: A dictionary containing the evaluation statistics.
     """
     size = len(dataloader)
     model.eval()
