@@ -27,7 +27,6 @@ def count_analyze(dataset: Dataset, folder_name: Optional[str] = None) -> tuple[
     class_counts = {}
     size_counts = {'small': 0, 'medium': 0, 'large': 0}
 
-    # Iterate over dataset and collect statistics
     for img, target in dataset:
         areas = ((target["boxes"][:, 3] - target["boxes"][:, 1]) * (
                 target["boxes"][:, 2] - target["boxes"][:, 0])).tolist()
@@ -45,7 +44,6 @@ def count_analyze(dataset: Dataset, folder_name: Optional[str] = None) -> tuple[
                 size_counts['large'] += 1
 
     if folder_name is not None:
-        # Write statistics to CSV
         with open(os.path.join(folder_name, 'number_of_objects_by_class.csv'), 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(['Class Name', 'Number of Objects'])
