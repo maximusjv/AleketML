@@ -2,6 +2,7 @@
 import csv
 import os
 import time
+from typing import Optional
 
 # Third-Party Libraries
 import numpy as np
@@ -22,7 +23,22 @@ def split_dataset(dataset: AleketDataset,
                   validation_fraction: float,
                   generator: np.random.Generator,
                   ) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
-    
+    """Splits the dataset into train and validation sets.
+
+    Splits the dataset into train and validation sets, ensuring that all patches 
+    from the same full image are kept together in the same set.
+
+    Args:
+        dataset (AleketDataset): The dataset to split.
+        dataset_fraction (float): The fraction of the dataset to use (for debugging/testing).
+        validation_fraction (float): The fraction of the used dataset to allocate for validation.
+        generator (np.random.Generator): A NumPy random generator for reproducible splitting.
+
+    Returns:
+        tuple[dict[str, list[int]], dict[str, list[int]]]: A tuple containing two dictionaries:
+            - The first dictionary maps full image IDs to lists of patch indices for the training set.
+            - The second dictionary maps full image IDs to lists of patch indices for the validation set.
+    """
     by_full_images = dataset.by_full_images()
     
     full_images = list(by_full_images.keys())
@@ -71,13 +87,11 @@ def create_dataloaders(
         A tuple containing the training DataLoader and the validation DataLoader.
     """
     
-
-
-    # Create training and validation subsets
+    
     train_dataset = Subset(dataset, train_indices)
     val_dataset = Subset(dataset, val_indices)
 
-    # Create DataLoaders
+    
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -96,14 +110,29 @@ def create_dataloaders(
     return train_dataloader, val_dataloader
 
 
-class StatsTracker:
-    """Tracks and logs training statistics."""
+from typing import Optional
+import os
+import csv
+import time
 
-    def __init__(self, stats_file: str = None) -> None:
+# ... other imports ...
+
+class StatsTracker:
+    """
+    Tracks and logs training statistics, including losses and evaluation metrics.
+
+    This class keeps track of training losses and validation metrics during the training process.
+    It can also save these statistics to a CSV file and plot the training loss and a specified
+    validation metric (e.g., AP@.50:.05:.95) over epochs.
+
+    Args:
+        stats_file (Optional[str]): Path to the CSV file where the statistics will be saved. 
+                                    If None, the statistics are not saved to a file.
+    """
+
+    def __init__(self, stats_file: Optional[str] = None) -> None:
         self.train_loss_history = []
-        self.val_metrics_history = (
-            []
-        )  
+        self.val_metrics_history = []
         self.best_val_metric = None
 
         self.stats_file = stats_file
@@ -115,92 +144,141 @@ class StatsTracker:
                     writer = csv.writer(csvfile)
                     writer.writerow(VALIDATION_METRICS + LOSSES_NAMES)
 
-    def update_stats(self, train_losses: dict[str, float], eval_coco_metrics: dict[str, float]):
+    def update_stats(self, train_losses: dict[str, float],
+                     eval_coco_metrics: dict[str, float]):
+        """
+        Updates the training statistics with the latest loss and metrics.
+
+        Appends the provided training losses and validation metrics to their respective history lists.
+        Also, updates the best validation metric if the current metric is better than the previous best.
+        If a `stats_file` is provided, the updated statistics are written to the CSV file.
+
+        Args:
+            train_losses (dict[str, float]): A dictionary of training loss values.
+            eval_coco_metrics (dict[str, float]): A dictionary of COCO evaluation metrics.
+        """
 
         self.train_loss_history.append(train_losses)
         self.val_metrics_history.append(eval_coco_metrics)
 
-        is_best = False
-        if (
-                self.best_val_metric is None
-                or eval_coco_metrics["AP@.50:.05:.95"] > self.best_val_metric["AP@.50:.05:.95"]
-        ):
+        if (self.best_val_metric is None
+                or eval_coco_metrics["AP@.50:.05:.95"] > self.best_val_metric
+                ["AP@.50:.05:.95"]):
             self.best_val_metric = eval_coco_metrics
-            is_best = True
 
         if self.stats_file:
             with open(self.stats_file, 'a', newline='') as csvfile:
                 writer = csv.writer(csvfile)
-                writer.writerow(list(eval_coco_metrics.values()) + list(train_losses.values()))
+                writer.writerow(list(eval_coco_metrics.values()) +
+                                list(train_losses.values()))
 
+    def plot_stats(self, save_path: str) -> None:
+        """
+        Plots the training loss and validation AP@.50:.05:.95 over epochs.
 
-    def plot_stats(self, save_path: str = None) -> None:
-        """Plots the training loss and validation AP@.50:.05:.95.
+        Generates a plot showing the trend of the training loss and the specified validation metric
+        (e.g., AP@.50:.05:.95) over the training epochs. The plot is save to specified path.
+
         Args:
-            save_path: Path to save the plot.
+            save_path (str): The path to save the plot to.
         """
         import matplotlib.pyplot as plt
 
         fig, (ax1, ax2) = plt.subplots(2, sharex=True, figsize=(12, 8))
         fig.suptitle("Training Statistics")
-        
-        loss_values = [loss_dict["loss"] for loss_dict in self.train_loss_history]
+
+        loss_values = [
+            loss_dict["loss"] for loss_dict in self.train_loss_history
+        ]
         ax1.plot(loss_values, label="Train Loss", color="blue")
         ax1.set_ylabel("Mean Training Loss")
         ax1.legend()
-        
-        ap_values = [ep["AP@.50:.05:.95"] for ep in self.val_metrics_history]
-        ax2.plot(ap_values, label="Validation AP@.50:.05:.95", color="red")
+
+        ap_values = [
+            ep["AP@.50:.05:.95"] for ep in self.val_metrics_history
+        ]
+        ax2.plot(ap_values,
+                 label="Validation AP@.50:.05:.95",
+                 color="red")
         ax2.set_xlabel("Epoch")
         ax2.set_ylabel("AP@.50:.05:.95")
         ax2.legend()
 
         if save_path:
             fig.savefig(save_path)
-            
+
         plt.close(fig)
 
 
 class TrainingLogger:
-    """A logger that uses Python's logging module."""
+    """Logs training progress, including epoch time, training losses, and validation metrics."""
 
     def __init__(self) -> None:
-        """
-        Initializes the TrainingLogger.
-        """
-
         self.time_elapsed = 0
         self.best_val_metric = None
 
-    def log_epoch_start(self, epoch: int, total_epochs: int, lr: float) -> None:
+    def log_epoch_start(self, epoch: int, total_epochs: int,
+                         lr: float) -> None:
+        """Logs the start of a new epoch, including the current learning rate.
+
+        Args:
+            epoch (int): The current epoch number.
+            total_epochs (int): The total number of epochs.
+            lr (float): The learning rate for the current epoch.
+        """
         self.time_elapsed = time.time()
         print(f"\nEpoch {epoch}/{total_epochs}; Learning rate: {lr}")
 
-    def log_epoch_end(self, epoch: int, train_losses: dict[str, float], eval_coco_metrics: dict[str, float]) -> None:
+    def log_epoch_end(self, epoch: int, train_losses: dict[str, float],
+                       eval_coco_metrics: dict[str, float]) -> None:
+        """
+        Logs the end of an epoch, including training losses, validation metrics, and the best validation metric so far.
+
+        Args:
+            epoch (int): The current epoch number.
+            train_losses (dict[str, float]): A dictionary of training loss values.
+            eval_coco_metrics (dict[str, float]): A dictionary of COCO evaluation metrics.
+        """
 
         if self.time_elapsed != 0:
             time_elapsed = time.time() - self.time_elapsed
             self.time_elapsed = 0
-            
-        print(f"Time: {time_elapsed}s; Epoch {epoch} Summary: ")
-        print(f"\tTrain Mean Loss: {train_losses[LOSSES_NAMES[0]]:.4f}")
-        for metric_name, metric_value in eval_coco_metrics.items():
-            print(f"\tValidation {metric_name}: {metric_value:.3f}")
 
-        if self.best_val_metric is None or eval_coco_metrics[VALIDATION_METRICS[0]] > self.best_val_metric:
-            self.best_val_metric = eval_coco_metrics[VALIDATION_METRICS[0]]
-            print(f"\tNew Best Validation {VALIDATION_METRICS[0]}: {self.best_val_metric:.3f}")
-        else:
-            print(f"\tBest Validation {VALIDATION_METRICS[0]}: {self.best_val_metric:.3f}")
-        
+            print(f"Time: {time_elapsed}s; Epoch {epoch} Summary: ")
+            print(f"\tTrain Mean Loss: {train_losses[LOSSES_NAMES[0]]:.4f}")
+            for metric_name, metric_value in eval_coco_metrics.items():
+                print(f"\tValidation {metric_name}: {metric_value:.3f}")
+
+            if (self.best_val_metric is None
+                    or eval_coco_metrics[VALIDATION_METRICS[0]] >
+                    self.best_val_metric):
+                self.best_val_metric = eval_coco_metrics[VALIDATION_METRICS[0]]
+                print(
+                    f"\tNew Best Validation {VALIDATION_METRICS[0]}: {self.best_val_metric:.3f}"
+                )
+            else:
+                print(
+                    f"\tBest Validation {VALIDATION_METRICS[0]}: {self.best_val_metric:.3f}"
+                )
 
 
-# Save training state
 def save_checkpoint(model: FasterRCNN,
                     optimizer: SGD,
                     lr_scheduler: LinearLR,
                     epoch_trained: int,
                     checkpoint_path: str) -> None:
+    """Saves the model's training checkpoint.
+
+    Saves the current state of the model, optimizer, and learning rate 
+    scheduler to a file for later resumption of training.
+
+    Args:
+        model (FasterRCNN): The Faster R-CNN model to save.
+        optimizer (SGD): The optimizer used for training the model.
+        lr_scheduler (LinearLR): The learning rate scheduler used for training.
+        epoch_trained (int): The number of epochs the model has been trained for.
+        checkpoint_path (str): The path to save the checkpoint file.
+    """
     save_state = {
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
@@ -210,10 +288,22 @@ def save_checkpoint(model: FasterRCNN,
     torch.save(save_state, checkpoint_path)
 
 
-# Load training state
 def load_checkpoint(
         model: FasterRCNN,
         checkpoint_path: str) -> tuple[FasterRCNN, SGD, LinearLR, int]:
+    """Loads a model checkpoint.
+
+    Loads a previously saved model checkpoint from the specified path, 
+    including the model state, optimizer state, and learning rate scheduler state.
+
+    Args:
+        model (FasterRCNN): The Faster R-CNN model to load the state into.
+        checkpoint_path (str): The path to the checkpoint file.
+
+    Returns:
+        tuple: A tuple containing the loaded model, optimizer, 
+               learning rate scheduler, and the number of epochs trained.
+    """
     save_state = torch.load(checkpoint_path, weights_only=False)
 
     model.load_state_dict(save_state["model_state_dict"])
@@ -226,4 +316,3 @@ def load_checkpoint(
     lr_scheduler.load_state_dict(save_state["lr_scheduler_state_dict"])
 
     return model, optimizer, lr_scheduler, epoch_trained
-
