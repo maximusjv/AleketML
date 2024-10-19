@@ -1,5 +1,6 @@
 # Standard Library
 import csv
+from datetime import timedelta
 import os
 import time
 from typing import Optional
@@ -12,6 +13,7 @@ from torch.optim.lr_scheduler import LinearLR
 
 # PyTorch
 from torch.utils.data import DataLoader, Subset
+import torchvision
 from torchvision.models.detection import FasterRCNN
 
 
@@ -244,7 +246,7 @@ class TrainingLogger:
             time_elapsed = time.time() - self.time_elapsed
             self.time_elapsed = 0
 
-            print(f"Time: {time_elapsed}s; Epoch {epoch} Summary: ")
+            print(f"Time: {str(timedelta(seconds=int(time_elapsed)))}; Epoch {epoch} Summary: ")
             print(f"\tTrain Mean Loss: {train_losses[LOSSES_NAMES[0]]:.4f}")
             for metric_name, metric_value in eval_coco_metrics.items():
                 print(f"\tValidation {metric_name}: {metric_value:.3f}")
@@ -316,3 +318,25 @@ def load_checkpoint(
     lr_scheduler.load_state_dict(save_state["lr_scheduler_state_dict"])
 
     return model, optimizer, lr_scheduler, epoch_trained
+
+
+def get_model(device: torch.device, ) -> FasterRCNN:
+    """
+    Loads a pretrained Faster R-CNN ResNet-50 FPN model and modifies the classification head 
+    to accommodate the specified number of classes in dataset (3 - including background).
+    Args:
+        device (torch.device): The device to move the model to (e.g., 'cuda' or 'cpu').
+
+    Returns:
+        FasterRCNN: The Faster R-CNN model with the modified classification head.
+    """
+    model = torchvision.models.detection.fasterrcnn_resnet50_fpn(
+        weights="DEFAULT"
+    )
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = (
+        torchvision.models.detection.faster_rcnn.FastRCNNPredictor(
+            in_features, 3
+        )
+    )
+    return model.to(device)
