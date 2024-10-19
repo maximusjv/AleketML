@@ -163,9 +163,12 @@ class StatsTracker:
         self.train_loss_history.append(train_losses)
         self.val_metrics_history.append(eval_coco_metrics)
 
+        is_best = False
+        
         if (self.best_val_metric is None
                 or eval_coco_metrics["AP@.50:.05:.95"] > self.best_val_metric
                 ["AP@.50:.05:.95"]):
+            is_best = True
             self.best_val_metric = eval_coco_metrics
 
         if self.stats_file:
@@ -173,6 +176,7 @@ class StatsTracker:
                 writer = csv.writer(csvfile)
                 writer.writerow(list(eval_coco_metrics.values()) +
                                 list(train_losses.values()))
+        return is_best
 
     def plot_stats(self, save_path: str) -> None:
         """
