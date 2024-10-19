@@ -45,24 +45,20 @@ def default_augmentation() -> dict:
             "p": 0.5
         },
         "perspective": {
-            "distortion_scale": 0.05,
-            "p": 0.1
+            "distortion_scale": 0.2,
+            "p": 0.5
         },
         "rotation": {
-            "degrees": 10,
+            "degrees": 15,
             "expand": True
         },
         "color_jitter": {
-            "brightness": 0.05,
-            "contrast": 0.05,
-            "saturation": 0.05,
-            "hue": 0.05,
-        },
-        "sharpness":{
-          "p": 0.2,
-          "sharpness_factor": 0.05
+            "brightness": 0.2,
+            "contrast": 0.1,
+            "saturation": 0.05
         }
     }
+    
 
 
 class TrainParams:
@@ -183,9 +179,6 @@ def parse_params(params: TrainParams, model:FasterRCNN, dataset: AleketDataset):
 
     if "color_jitter" in params.augmentation:
         augmentation_list.append(v2.ColorJitter(**params.augmentation["color_jitter"]))
-
-    if "sharpness" in params.augmentation:
-        augmentation_list.append(v2.RandomAdjustSharpness(**params.augmentation["sharpness"]))
 
     augmentation = v2.Compose(augmentation_list)
 
