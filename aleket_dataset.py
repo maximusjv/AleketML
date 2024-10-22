@@ -77,6 +77,7 @@ class AleketDataset(Dataset):
         self.augmentation = augmentation
         print(f"Dataset loaded from {dataset_dir}")
 
+    
     def by_full_images(self) -> dict[str, list[int]]:
         """Groups image indices by their corresponding full image ID.
         Returns:
@@ -91,6 +92,17 @@ class AleketDataset(Dataset):
             by_full_images[full_image_id].append(idx)
         return by_full_images
 
+
+    def get_annots(self, indices: list[int]) -> list[dict]:
+        targets = [
+            {
+                "image_id": idx,
+                "labels": self.dataset[self.images[idx]]["category_id"],
+                "boxes": self.dataset[self.images[idx]]["boxes"]
+            } for idx in indices
+        ]
+        return targets
+    
     def __len__(self):
         """Returns the total number of images in the dataset."""
         return len(self.images)

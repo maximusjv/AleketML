@@ -231,8 +231,8 @@ def train(model:FasterRCNN,
     validation_graph = os.path.join(result_path, "validation_graph")
     validation_log = os.path.join(result_path, "validation_log.csv")
     
-
-    evaluator = Evaluator(val_dataloader.dataset)
+    epoch_trained = 0
+    evaluator = Evaluator(dataset, val_dataloader.dataset.indices)
 
     if resume:
         print(f"Resuming from  {last_checkpoint_path}...")
@@ -245,7 +245,7 @@ def train(model:FasterRCNN,
     
     params.save(params_path)
     
-    epoch_trained = 0
+    
     stats_tracker = StatsTracker(validation_log)
     logger = TrainingLogger()
 

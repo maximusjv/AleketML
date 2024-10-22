@@ -9,6 +9,8 @@ from torch.utils.data import Dataset
 # Torchision
 from torchvision import ops
 
+from aleket_dataset import AleketDataset
+
 # METRICS NAMES
 VALIDATION_METRICS = ["AP@.50:.05:.95", "AP@.5", "AP@.75",
                       "Recall@.50:.05:.95", "Recall@.5", "Recall@.75",
@@ -17,7 +19,7 @@ VALIDATION_METRICS = ["AP@.50:.05:.95", "AP@.5", "AP@.75",
 LOSSES_NAMES = ["loss", "loss_classifier", "loss_box_reg", 'loss_objectness', 'loss_rpn_box_reg']
 
 
-def prepare_gts(dataset: Dataset) -> tuple[dict[tuple[str, int], np.ndarray], list, list]:
+def prepare_gts(dataset: AleketDataset, indices: list[int]) -> tuple[dict[tuple[str, int], np.ndarray], list, list]:
     """Prepares ground truth data for evaluation.
 
     Extracts ground truth bounding boxes and labels from the dataset and organizes them by image and category.
@@ -34,11 +36,11 @@ def prepare_gts(dataset: Dataset) -> tuple[dict[tuple[str, int], np.ndarray], li
     gts = {}
     categories = set()
     image_ids = set()
-
-    for _, target in dataset:
+    annots = dataset.get_annots(indices)
+    for target in annots:
         img_id = target["image_id"]
-        bbox = target["boxes"].cpu().numpy()
-        labels = target["labels"].cpu().numpy()
+        bbox = np.asarray(target["boxes"])
+        labels = np.asarray(target["labels"])
 
         image_ids.add(img_id)
         categories.update(labels.tolist())
@@ -237,10 +239,10 @@ class Evaluator:
     """
     max_dets = 100
 
-    def __init__(self, ds: Dataset):
+    def __init__(self, ds: AleketDataset, indices: list[int]):
         (self.gts,
          self.images_id,
-         self.categories) = prepare_gts(ds)
+         self.categories) = prepare_gts(ds, indices)
 
         self.recall_thrs = np.linspace(.0, 1.00, 101)
         self.iou_thrs = np.linspace(.50, 0.95, 10).tolist()
