@@ -1,202 +1,29 @@
 # Standard Library
-import json
 import os
 import math
 import shutil
-from typing import Any
 
 # Third-party Libraries
-from torchvision.transforms import v2
 from tqdm import tqdm
 
 # PyTorch
 import torch
 from torch import optim
-from torch.optim import SGD
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import MultiStepLR
 
 # Torchvision
 import torchvision.models.detection as tv_detection
 from torchvision.models.detection import FasterRCNN
 
 from aleket_dataset import AleketDataset
-from metrics import LOSSES_NAMES, Evaluator
+from metrics import LOSSES_NAMES, VALIDATION_METRICS, Evaluator
+from run_params import RunParams, parse_params
 from utils import StatsTracker, TrainingLogger, load_checkpoint, save_checkpoint, create_dataloaders
-
-
-def default_augmentation() -> dict:
-    """
-    Returns a dictionary containing default augmentation settings.
-
-    The augmentation settings include random horizontal flip, vertical flip, perspective
-    transformation, rotation, color jitter, and sharpness adjustment. Each augmentation
-    has a probability (`p`) of being applied, and some have additional parameters
-    like `distortion_scale`, `degrees`, etc.
-
-    Returns:
-        dict: A dictionary with augmentation settings.
-    """
-    return {
-        "horizontal_flip": {
-            "p": 0.5
-        },
-        "vertical_flip": {
-            "p": 0.5
-        },
-        "perspective": {
-            "distortion_scale": 0.2,
-            "p": 0.5
-        },
-        "rotation": {
-            "degrees": 15,
-            "expand": True
-        },
-        "color_jitter": {
-            "brightness": 0.2,
-            "contrast": 0.1,
-            "saturation": 0.05
-        }
-    }
-    
-
-
-class TrainParams:
-    """
-    Stores and manages training parameters.
-
-    Attributes:
-        run_name (str): Name of the training run.
-        train_set (dict): Dictionary specifying the training set indices.
-        validation_set (dict): Dictionary specifying the validation set indices.
-        augmentation (dict): Augmentation settings.
-        batch_size (int): Batch size for training.
-        dataloader_workers (int): Number of workers for the dataloader.
-        total_epochs (int): Total number of training epochs.
-        lr (float): Learning rate.
-        lr_decay_factor (float): Factor for learning rate decay.
-        lr_decay_milestones (list): Epochs at which to decay the learning rate.
-        momentum (float): Momentum for the optimizer.
-        weight_decay (float): Weight decay for the optimizer.
-
-    Methods:
-        load(path): Loads parameters from a JSON file.
-        save(path): Saves parameters to a JSON file.
-    """
-    
-    def __init__(self,
-                 run_name: str = "default",
-                 train_set: dict[str, list[int]] = {},
-                 validation_set: dict[str, list[int]] = {},
-
-                 augmentation: dict[str, Any] = default_augmentation(),
-                 batch_size: int = 16,
-                 dataloader_workers: int = 16,
-                 total_epochs: int = 100,
-
-                 lr: float = 1e-3,
-                 lr_decay_factor: float = 0.1,
-                 lr_decay_milestones: list[int] = [50, 90],
-                 momentum: float = 0.9,
-                 weight_decay: float = 1e-4):
-
-        self.run_name = run_name
-        self.augmentation = augmentation
-
-        self.batch_size = batch_size
-        self.dataloader_workers = dataloader_workers
-        self.total_epochs = total_epochs
-        self.lr = lr
-        self.lr_decay_factor = lr_decay_factor
-        self.lr_decay_milestones = lr_decay_milestones
-        self.momentum = momentum
-        self.weight_decay = weight_decay
-        
-        self.train_set = train_set
-        self.validation_set = validation_set
-        
-    def load(self, path: str):
-        """Loads parameters from a JSON file."""
-        with open(path, 'r') as file: 
-            state = json.load(file)
-        self.__dict__.update(**state)
-
-    def save(self, path: str):
-        """Saves parameters to a JSON file."""
-        with open(path, 'w') as file: 
-            json.dump(self.__dict__, file, indent=1)
-
-
-
-def parse_params(params: TrainParams, model:FasterRCNN, dataset: AleketDataset):
-    """
-    Parses training parameters and sets up training components.
-
-    Args:
-        params (TrainParams): Training parameters.
-        model (FasterRCNN): The Faster R-CNN model.
-        dataset (AleketDataset): The dataset.
-
-    Returns:
-        dict: A dictionary containing the training dataloader, validation dataloader,
-              optimizer, learning rate scheduler, augmentation pipeline, total epochs,
-              and run path.
-    """
-    train_indices = []
-    val_indices = []
-
-    for indices in params.train_set.values():
-        train_indices.extend(indices)
-    for indices in params.validation_set.values():
-        val_indices.extend(indices)
-
-    train_dataloader, val_dataloader = create_dataloaders(dataset,
-                                                          train_indices,
-                                                          val_indices,
-                                                          params.batch_size,
-                                                          params.dataloader_workers)
-
-    optimizer = SGD(model.parameters(), lr=params.lr, momentum=params.momentum, weight_decay=params.weight_decay)
-    lr_scheduler = MultiStepLR(
-        optimizer, milestones=params.lr_decay_milestones, gamma=params.lr_decay_factor
-    )
-    run_path = os.path.join("results", params.run_name)
-    total_epochs = params.total_epochs
-
-    augmentation_list = []
-
-    if "horizontal_flip" in params.augmentation:
-        augmentation_list.append(v2.RandomHorizontalFlip(**params.augmentation["horizontal_flip"]))
-
-    if "vertical_flip" in params.augmentation:
-        augmentation_list.append(v2.RandomHorizontalFlip(**params.augmentation["vertical_flip"]))
-
-    if "perspective" in params.augmentation:
-        augmentation_list.append(v2.RandomPerspective(**params.augmentation["perspective"]))
-
-    if "rotation" in params.augmentation:
-        augmentation_list.append(v2.RandomRotation(**params.augmentation["rotation"]))
-
-    if "color_jitter" in params.augmentation:
-        augmentation_list.append(v2.ColorJitter(**params.augmentation["color_jitter"]))
-
-    augmentation = v2.Compose(augmentation_list)
-
-    return {
-        "train_loader": train_dataloader,
-        "val_loader": val_dataloader,
-        "optimizer": optimizer,
-        "lr_scheduler": lr_scheduler,
-        "augmentation": augmentation,
-        "total_epochs": total_epochs,
-        "run_path": run_path,
-    }
-
 
 
 def train(model:FasterRCNN,
           dataset: AleketDataset,
-          params: TrainParams,
+          params: RunParams,
           device: torch.device,
 
           resume: bool = False,
@@ -273,7 +100,7 @@ def train(model:FasterRCNN,
             logger.log_epoch_end(epoch, losses, eval_stats)
 
 
-        lr_scheduler.step()
+        lr_scheduler.step(stats_tracker.val_metrics_history[-1][VALIDATION_METRICS[0]])
 
         epoch_trained = epoch
         if checkpoints:

@@ -8,14 +8,12 @@ from typing import Optional
 # Third-Party Libraries
 import numpy as np
 import torch
-from torch.optim import SGD
-from torch.optim.lr_scheduler import LinearLR
 
 # PyTorch
 from torch.utils.data import DataLoader, Subset
-import torchvision
 from torchvision.models.detection import FasterRCNN
-
+from torch.optim import SGD
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from aleket_dataset import AleketDataset
 from metrics import VALIDATION_METRICS, LOSSES_NAMES
@@ -267,10 +265,24 @@ class TrainingLogger:
                     f"\tBest Validation {VALIDATION_METRICS[0]}: {self.best_val_metric:.3f}"
                 )
 
+def get_optimizer(model: FasterRCNN, params: dict = None):
+    mparams = [p for p in model.parameters() if p.requires_grad]
+    if params:
+          return SGD(params=mparams, **params)
+    else:
+          return SGD(params=mparams)
+  
 
+def get_lr_scheduler(optimizer: torch.optim.Optimizer, params: dict = None):
+    if params:
+        return ReduceLROnPlateau(optimizer=optimizer, mode="max", **params)  
+    else:
+        return ReduceLROnPlateau(optimizer=optimizer, mode="max")
+    
+    
 def save_checkpoint(model: FasterRCNN,
                     optimizer: SGD,
-                    lr_scheduler: LinearLR,
+                    lr_scheduler: ReduceLROnPlateau,
                     epoch_trained: int,
                     checkpoint_path: str) -> None:
     """Saves the model's training checkpoint.
@@ -296,7 +308,7 @@ def save_checkpoint(model: FasterRCNN,
 
 def load_checkpoint(
         model: FasterRCNN,
-        checkpoint_path: str) -> tuple[FasterRCNN, SGD, LinearLR, int]:
+        checkpoint_path: str) -> tuple[FasterRCNN, SGD, ReduceLROnPlateau, int]:
     """Loads a model checkpoint.
 
     Loads a previously saved model checkpoint from the specified path, 
@@ -313,34 +325,13 @@ def load_checkpoint(
     save_state = torch.load(checkpoint_path, weights_only=False)
 
     model.load_state_dict(save_state["model_state_dict"])
-    optimizer = SGD(model.parameters())
+    optimizer = get_optimizer(model.parameters())
     optimizer.load_state_dict(save_state["optimizer_state_dict"])
 
     epoch_trained = save_state["epoch_trained"]
 
-    lr_scheduler = LinearLR(optimizer, last_epoch=epoch_trained)
+    lr_scheduler = get_lr_scheduler(optimizer, last_epoch=epoch_trained)
     lr_scheduler.load_state_dict(save_state["lr_scheduler_state_dict"])
 
     return model, optimizer, lr_scheduler, epoch_trained
 
-
-def get_model(device: torch.device, ) -> FasterRCNN:
-    """
-    Loads a pretrained Faster R-CNN ResNet-50 FPN model and modifies the classification head 
-    to accommodate the specified number of classes in dataset (3 - including background).
-    Args:
-        device (torch.device): The device to move the model to (e.g., 'cuda' or 'cpu').
-
-    Returns:
-        FasterRCNN: The Faster R-CNN model with the modified classification head.
-    """
-    model = torchvision.models.detection.fasterrcnn_resnet50_fpn(
-        weights="DEFAULT"
-    )
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-    model.roi_heads.box_predictor = (
-        torchvision.models.detection.faster_rcnn.FastRCNNPredictor(
-            in_features, 3
-        )
-    )
-    return model.to(device)
