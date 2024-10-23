@@ -237,7 +237,6 @@ class Evaluator:
     Args:
         ds (Dataset): The dataset containing images and ground truth annotations.
     """
-    max_dets = 100
 
     def __init__(self, ds: AleketDataset, indices: list[int]):
         (self.gts,
@@ -325,14 +324,9 @@ class Evaluator:
                     gt = self.gts.get((image_id, cat), np.empty((0,4)))
                     dt, score = dts.get((image_id, cat), (np.empty((0,4)), np.empty(0)))
 
-
                     if len(dt) == 0 and len(gt) == 0:
                         continue
-
-                    if len(dt) > Evaluator.max_dets:
-                        dt = dt[:Evaluator.max_dets]
-                        score = score[:Evaluator.max_dets]
-
+                    
                     gt_match, dt_match = np.zeros(len(gt)), np.zeros(len(dt))
                     if len(gt) != 0 and len(dt) != 0:
                         # Compute IoU
