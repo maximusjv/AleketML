@@ -100,7 +100,7 @@ def train(model:FasterRCNN,
             logger.log_epoch_end(epoch, losses, eval_stats)
 
 
-        lr_scheduler.step(stats_tracker.val_metrics_history[-1][VALIDATION_METRICS[0]])
+        lr_scheduler.step(eval_stats[VALIDATION_METRICS[0]])
 
         epoch_trained = epoch
         if checkpoints:
