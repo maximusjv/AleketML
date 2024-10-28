@@ -1,4 +1,5 @@
 # Standard Library
+import math
 import csv
 from datetime import timedelta
 import os
@@ -6,10 +7,12 @@ import time
 from typing import Optional
 
 # Third-Party Libraries
+from PIL import Image
 import numpy as np
-import torch
+
 
 # PyTorch
+import torch
 from torch.utils.data import DataLoader, Subset
 from torchvision.models.detection import FasterRCNN
 from torch.optim import SGD
@@ -17,6 +20,40 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from aleket_dataset import AleketDataset
 from metrics import VALIDATION_METRICS, LOSSES_NAMES
+
+
+def make_patches(
+          img: Image.Image,
+          patch_size: int,
+          overlap: float,
+):
+    overlap_size = int(patch_size * overlap)
+    no_overlap_size = patch_size - overlap_size
+
+    imgs_per_width = math.ceil(float(img.width) / no_overlap_size)
+    imgs_per_height = math.ceil(float(img.height) / no_overlap_size)
+
+    padded_height = imgs_per_width * no_overlap_size + overlap_size
+    padded_width = imgs_per_width * no_overlap_size + overlap_size
+
+    padded_img = Image.new("RGB", (padded_width, padded_height))
+    padded_img.paste(img)
+
+    patched_images = []
+    patch_boxes = []
+
+    for row in range(imgs_per_height):
+        for col in range(imgs_per_width):
+            xmin, ymin = col * no_overlap_size, row * no_overlap_size
+            xmax, ymax = xmin + patch_size, ymin + patch_size
+            patch_box = (xmin, ymin, xmax, ymax)
+            patched_image = padded_img.crop(patch_box)
+
+            patch_boxes.append(patch_box)
+            patched_images.append(patched_image)
+
+    return patched_images, patch_boxes
+
 
 def split_dataset(dataset: AleketDataset,
                   dataset_fraction: float, 
@@ -110,10 +147,6 @@ def create_dataloaders(
     return train_dataloader, val_dataloader
 
 
-from typing import Optional
-import os
-import csv
-import time
 
 # ... other imports ...
 
