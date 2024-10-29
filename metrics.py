@@ -19,7 +19,7 @@ VALIDATION_METRICS = ["AP@.50:.05:.95", "AP@.5", "AP@.75",
 LOSSES_NAMES = ["loss", "loss_classifier", "loss_box_reg", 'loss_objectness', 'loss_rpn_box_reg']
 
 
-def prepare_gts(dataset: AleketDataset, indices: list[int]) -> tuple[dict[tuple[str, int], np.ndarray], list, list]:
+def prepare_gts(dataset: AleketDataset, indices: list[int]) -> tuple[dict[tuple[int, int], np.ndarray], list, list]:
     """Prepares ground truth data for evaluation.
 
     Extracts ground truth bounding boxes and labels from the dataset and organizes them by image and category.
@@ -53,8 +53,8 @@ def prepare_gts(dataset: AleketDataset, indices: list[int]) -> tuple[dict[tuple[
     return gts, sorted(image_ids), sorted(categories)
 
 
-def prepare_dts(predictions: dict[str, dict[str, torch.Tensor]]
-                ) -> dict[tuple[str, int], tuple[np.ndarray, np.ndarray]]:
+def prepare_dts(predictions: dict[int, dict[str, torch.Tensor]]
+                ) -> dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]:
     """Prepares detection results for evaluation.
 
     Organizes detection results by image and category, sorting them by confidence score.
@@ -248,7 +248,7 @@ class Evaluator:
 
         self.eval_res = {}
 
-    def _quantitative_eval(self, dts: dict[tuple[str, int], tuple[np.ndarray, np.ndarray]]):
+    def _quantitative_eval(self, dts: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]):
         """Calculates Average Area Difference (AAD) and Average Count Difference (ACD).
 
         Computes the AAD and ACD between ground truth and detected objects across 
@@ -283,7 +283,7 @@ class Evaluator:
             "ACD": CD.mean()
         }
 
-    def _pr_eval_by_iou(self, dts: dict[tuple[str, int], tuple[np.ndarray, np.ndarray]], iou_thrs: list):
+    def _pr_eval_by_iou(self, dts: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]], iou_thrs: list):
         """Calculates precision-recall curves and related metrics for different IoU thresholds.
 
         Computes precision-recall curves, precision, and recall for each category and 
@@ -358,7 +358,7 @@ class Evaluator:
         }
 
 
-    def eval(self, dts: dict[str, dict[str, torch.Tensor]]):
+    def eval(self, dts: dict[int, dict[str, torch.Tensor]]):
         """
         Evaluates the detection results and calculates COCO metrics.
 
