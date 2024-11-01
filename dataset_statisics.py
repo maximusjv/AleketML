@@ -4,18 +4,24 @@ from io import BytesIO
 import os
 from typing import Optional
 
-# Pytorch
+
 import PIL
 from PIL.Image import Image
-from PIL import ImageDraw
 from matplotlib import patches, pyplot as plt
+import numpy as np
+
+# Pytorch
+import torch
+from torchvision import ops
 from torch.utils.data import Dataset
 from torchvision.transforms import v2
 
 from aleket_dataset import AleketDataset
 
 
-def count_analyze(dataset: Dataset, folder_name: Optional[str] = None) -> tuple[dict, dict]:
+def count_analyze(dataset: AleketDataset,
+                  indices: list[int] = None,
+                  save_folder: Optional[str] = None) -> tuple[dict, dict]:
     """
     Analyzes the dataset to count the occurrences of each class and the number of objects in each size range.
 
@@ -29,39 +35,83 @@ def count_analyze(dataset: Dataset, folder_name: Optional[str] = None) -> tuple[
                             - The first dictionary maps class labels to their counts.
                             - The second dictionary maps size ranges ('small', 'medium', 'large') to their counts.
     """
-    class_counts = {}
-    size_counts = {'small': 0, 'medium': 0, 'large': 0}
+    
 
-    for img, target in dataset:
-        areas = ((target["boxes"][:, 3] - target["boxes"][:, 1]) * (
-                target["boxes"][:, 2] - target["boxes"][:, 0])).tolist()
-        for box, label, area in zip(target["boxes"], target["labels"], areas):
-            label = label.item()
-            label = AleketDataset.NUM_TO_CLASSES[label]
+    by_class_count = {}
+    
+    count_thrs = np.linspace(10, 1000, (1000-10)//10+1)
+    area_thrs = np.array([32**2, 96**2]) # according to coco
+    iou_thrs = np.linspace(0.1, 0.9, 9)
+    
+    by_img_count = np.zeros(len(count_thrs) + 1, dtype=np.int32)
+    by_area = np.zeros(len(area_thrs) + 1, dtype=np.int32)
+    by_iou = np.zeros(len(iou_thrs) + 1, dtype=np.int32)
+    
+    with torch.no_grad():
+        if not indices:
+            indices = list(range(len(dataset)))
+            
+        for target in dataset.get_annots(indices):
+            boxes = torch.as_tensor(target["boxes"])
+            labels = torch.as_tensor(target["labels"])
+            areas = ops.box_area(boxes)
+            uq_labels = torch.unique(labels).tolist()
+            
+            for label in uq_labels:
+                label_name = AleketDataset.NUM_TO_CLASSES[label]
+                by_class_count[label_name] = by_class_count.get(label_name, 0) + (labels == label).sum().item()
+            
+            count = len(labels)
+            ious = ops.box_iou(boxes, boxes).unsqueeze(0)
+            ious = ious[torch.where(ious <= 0.999)] # remove iou of same boxes
+            
+            count_inds = np.searchsorted(count_thrs, [count], side='left')[0]
+            by_img_count[count_inds] += 1
+        
+            areas_inds = np.searchsorted(area_thrs, areas.numpy(), side='left').tolist()
+            for i in areas_inds:
+                by_area[i] += 1
+                
+            ious_inds = np.searchsorted(iou_thrs, ious.numpy(), side='left').tolist()
+            for i in ious_inds:
+                by_iou[i] += 1
 
-            class_counts[label] = class_counts.get(label, 0) + 1
-
-            if area <= 32 ** 2:
-                size_counts['small'] += 1
-            elif area <= 96 ** 2:
-                size_counts['medium'] += 1
-            else:
-                size_counts['large'] += 1
-
-    if folder_name is not None:
-        with open(os.path.join(folder_name, 'number_of_objects_by_class.csv'), 'w', newline='') as csvfile:
+                
+    by_iou //= 2
+    if save_folder is not None:
+        
+        os.makedirs(save_folder, exist_ok=True)
+        
+        with open(os.path.join(save_folder, 'class_historgram.csv'), 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(['Class Name', 'Number of Objects'])
-            for class_id, count in class_counts.items():
+            for class_id, count in by_class_count.items():
                 writer.writerow([class_id, count])
-
-        with open(os.path.join(folder_name, 'number_of_objects_by_size.csv'), 'w', newline='') as csvfile:
+                
+        with open(os.path.join(save_folder, 'area_histogram.csv'), 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(['Size', 'Number of Objects'])
-            for size, count in size_counts.items():
-                writer.writerow([size, count])
+            writer.writerow(['Area Range', 'Number of Objects']) 
+            for i, count in enumerate(by_area): 
+                if i == 0:
+                    writer.writerow(['small', count])  # First bin is 'small'
+                elif i == 1:
+                    writer.writerow(['medium', count])  # Second bin is 'medium'
+                elif i == 2:
+                    writer.writerow(['large', count])  # Third bin is 'large'
 
-    return class_counts, size_counts
+        with open(os.path.join(save_folder, 'ious_histogram.csv'), 'w', newline='') as csvfile: 
+            writer = csv.writer(csvfile)
+            writer.writerow(['IoU Range', 'Number of intersections'])  
+            for i, count in enumerate(by_iou):  
+                writer.writerow([f'{iou_thrs[i-1] if i > 0 else 0:.2f}-{iou_thrs[i] if i < len(iou_thrs) else 1:.2f}', count])
+                
+        with open(os.path.join(save_folder, 'count_histogram.csv'), 'w', newline='') as csvfile:  # New file for by_img_count
+            writer = csv.writer(csvfile)
+            writer.writerow(['Objects Count Range', 'Number of Images'])
+            for i, count in enumerate(by_img_count): 
+                writer.writerow([f'{count_thrs[i-1] if i > 0 else 0:.0f}-{round(count_thrs[i]) if i < len(count_thrs) else "inf"}', count]) 
+
+    return by_class_count, by_img_count, by_area, by_iou
 
 
 def visualize_bboxes(img: Image,
