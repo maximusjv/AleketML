@@ -59,6 +59,8 @@ def train(model:FasterRCNN,
     validation_log = os.path.join(result_path, "validation_log.csv")
     
     epoch_trained = 0
+    
+    dataset.augmentation = None
     evaluator = Evaluator(dataset, val_dataloader.dataset.indices)
 
     if resume:
