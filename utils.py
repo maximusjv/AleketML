@@ -14,7 +14,8 @@ import numpy as np
 # PyTorch
 import torch
 from torch.utils.data import DataLoader, Subset
-from torchvision.models.detection import FasterRCNN
+from torchvision.models.detection import FasterRCNN, fasterrcnn_resnet50_fpn
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torch.optim import SGD
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
@@ -101,9 +102,11 @@ def split_dataset(dataset: AleketDataset,
     
     return train_set, validation_set
     
+    
 def collate_fn(batch):
     """Collates data samples into batches for the dataloader."""
     return tuple(zip(*batch))
+
 
 # Dataset split
 def create_dataloaders(
@@ -146,9 +149,6 @@ def create_dataloaders(
 
     return train_dataloader, val_dataloader
 
-
-
-# ... other imports ...
 
 class StatsTracker:
     """
@@ -298,7 +298,31 @@ class TrainingLogger:
                     f"\tBest Validation {VALIDATION_METRICS[0]}: {self.best_val_metric:.3f}"
                 )
 
-def get_optimizer(model: FasterRCNN, params: dict = None):
+
+def get_model(device: torch.device, trainable_backbone_layers: int = 3) -> FasterRCNN:
+    """
+    Loads a pretrained Faster R-CNN ResNet-50 FPN model and modifies the classification head 
+    to accommodate the specified number of classes in dataset (3 - including background).
+    Args:
+        device (torch.device): The device to move the model to (e.g., 'cuda' or 'cpu').
+
+    Returns:
+        FasterRCNN: The Faster R-CNN model with the modified classification head.
+    """
+    model = fasterrcnn_resnet50_fpn(
+        weights = "DEFAULT",
+        trainable_backbone_layers = trainable_backbone_layers
+    )
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = (
+        FastRCNNPredictor(
+            in_features, 3
+        )
+    )
+    return model.to(device)
+
+
+def get_optimizer(model: FasterRCNN, params: dict = None) -> SGD:
     mparams = [p for p in model.parameters() if p.requires_grad]
     if params:
           return SGD(params=mparams, **params)
@@ -306,7 +330,7 @@ def get_optimizer(model: FasterRCNN, params: dict = None):
           return SGD(params=mparams)
   
 
-def get_lr_scheduler(optimizer: torch.optim.Optimizer, params: dict = None):
+def get_lr_scheduler(optimizer: torch.optim.Optimizer, params: dict = None) -> ReduceLROnPlateau:
     if params:
         return ReduceLROnPlateau(optimizer=optimizer, mode="max", **params)  
     else:
@@ -339,9 +363,7 @@ def save_checkpoint(model: FasterRCNN,
     torch.save(save_state, checkpoint_path)
 
 
-def load_checkpoint(
-        model: FasterRCNN,
-        checkpoint_path: str) -> tuple[FasterRCNN, SGD, ReduceLROnPlateau, int]:
+def load_checkpoint(model: FasterRCNN, checkpoint_path: str) -> tuple[FasterRCNN, SGD, ReduceLROnPlateau, int]:
     """Loads a model checkpoint.
 
     Loads a previously saved model checkpoint from the specified path, 
