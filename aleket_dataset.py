@@ -54,7 +54,6 @@ class AleketDataset(Dataset):
     def __init__(
         self,
         dataset_dir: str,
-        img_size: int,
         augmentation: Optional[v2.Transform] = None
     ) -> None:
         self.img_dir = os.path.join(dataset_dir, "imgs")
@@ -70,10 +69,8 @@ class AleketDataset(Dataset):
        
         self.images.sort(key=get_key)
 
-
-        self.default_transforms = v2.Compose(
-            [v2.Resize(size=img_size), v2.ToDtype(torch.float32, scale=True), ]
-        )
+        self.default_transforms = v2.ToDtype(torch.float32, scale=True)
+        
         self.augmentation = augmentation
         print(f"Dataset loaded from {dataset_dir}")
 
