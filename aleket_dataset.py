@@ -125,7 +125,7 @@ class AleketDataset(Dataset):
 
         img = tv_tensors.Image(img, dtype=torch.uint8)
 
-        wt, ht = img.shape[-1], img.shape[-2]  # Get width and height
+        ht, wt = img.shape[-1], img.shape[-2]  # Get width and height
 
         labels = torch.as_tensor(labels)
         bboxes = tv_tensors.BoundingBoxes(bboxes, format="XYXY", canvas_size=(wt, ht))

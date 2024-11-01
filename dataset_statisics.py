@@ -41,7 +41,7 @@ def count_analyze(dataset: AleketDataset,
     
     count_thrs = np.linspace(10, 1000, (1000-10)//10+1)
     area_thrs = np.array([32**2, 96**2]) # according to coco
-    iou_thrs = np.linspace(0.1, 0.9, 9)
+    iou_thrs = np.linspace(0.1, 0.9, int((0.9-0.1)//0.1)+1)
     
     by_img_count = np.zeros(len(count_thrs) + 1, dtype=np.int32)
     by_area = np.zeros(len(area_thrs) + 1, dtype=np.int32)
