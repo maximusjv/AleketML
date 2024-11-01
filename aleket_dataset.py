@@ -66,8 +66,8 @@ class AleketDataset(Dataset):
         
         def get_key(x: str): # sort by full image id and then patch num
             s = x.split('_')
-            return int(s[0]), int(s[1])
-        
+            return int(s[0]), int(s[1]) if len(s) > 1 else s[0]
+       
         self.images.sort(key=get_key)
 
 
