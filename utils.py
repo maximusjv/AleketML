@@ -380,12 +380,12 @@ def load_checkpoint(model: FasterRCNN, checkpoint_path: str) -> tuple[FasterRCNN
     save_state = torch.load(checkpoint_path, weights_only=False)
 
     model.load_state_dict(save_state["model_state_dict"])
-    optimizer = get_optimizer(model.parameters())
+    optimizer = get_optimizer(model)
     optimizer.load_state_dict(save_state["optimizer_state_dict"])
 
     epoch_trained = save_state["epoch_trained"]
 
-    lr_scheduler = get_lr_scheduler(optimizer, last_epoch=epoch_trained)
+    lr_scheduler = get_lr_scheduler(optimizer)
     lr_scheduler.load_state_dict(save_state["lr_scheduler_state_dict"])
 
     return model, optimizer, lr_scheduler, epoch_trained
