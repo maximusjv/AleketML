@@ -40,7 +40,7 @@ def count_analyze(dataset: AleketDataset,
     by_class_count = {}
     
  
-    count_thrs =   np.arrange(10, 1000, 10)
+    count_thrs =   np.arange(10, 1000, 10)
     area_thrs = np.array([32**2, 96**2]) # according to coco
     iou_thrs = np.round(np.arange(0.1, 0.9 + 1e-2, 0.1),1)
     
