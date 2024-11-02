@@ -51,30 +51,31 @@ class Predictor:
         self.model.roi_heads.nms_thresh = nms_thresh
         self.model.roi_heads.detections_per_img = self.detections_per_patch
 
-        if isinstance(image, torch.Tensor):
-            image = v2.functional.to_pil_image(image)
-
-        patched_images, patches = make_patches(
-            image, self.patch_size, self.patch_overlap
+        if isinstance(image, Image):
+            image = v2.functional.to_image(image)
+    
+        wd, ht = image.shape[-2:]
+        padded_width, padded_height, patches = make_patches(
+            wd, ht, self.patch_size, self.patch_overlap
         )
-
+        image = v2.functional.pad(image, padding=[0, 0, padded_width-wd, padded_height-ht],fill=0.0)
+        image = v2.functional.to_dtype(image,  dtype=torch.float32, scale=True)
+        
         boxes = []
         labels = []
         scores = []
 
         with torch.no_grad():
             self.model.eval()
-            for img, box in zip(patched_images, patches):
-                xmin, ymin = box[0], box[1]
-                img = v2.functional.to_dtype(
-                    v2.functional.to_image(img), dtype=torch.float32, scale=True
-                ).to(self.device)
+            for patch_box in patches:
+                x1, y1, x2, y2 = patch_box
+                patched_img = v2.functional.crop(image, y1, x1, y2-y1, x2-x1).to(device=self.device)
 
-                predictions = self.model([img])[0]
-                predictions["boxes"][:, 0] += xmin
-                predictions["boxes"][:, 2] += xmin
-                predictions["boxes"][:, 1] += ymin
-                predictions["boxes"][:, 3] += ymin
+                predictions = self.model([patched_img])[0]
+                predictions["boxes"][:, 0] += x1
+                predictions["boxes"][:, 2] += x1
+                predictions["boxes"][:, 1] += y1
+                predictions["boxes"][:, 3] += y1
 
                 if len(predictions["labels"]) != 0:
                     labels.append(predictions["labels"])
