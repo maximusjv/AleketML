@@ -4,7 +4,7 @@ import os
 from typing import Any
 
 from aleket_dataset import AleketDataset
-from utils import create_dataloaders, get_lr_scheduler, get_optimizer
+from utils import get_lr_scheduler, get_optimizer
 
 # Torchvision
 from torchvision.transforms import v2
@@ -86,8 +86,8 @@ class RunParams:
     
     def __init__(self,
                  run_name: str = "default",
-                 train_set: dict[str, list[int]] = None,
-                 validation_set: dict[str, list[int]] = None,
+                 train_set: dict[str, list[str]] = None,
+                 validation_set: dict[str, list[str]] = None,
                  
                  batch_size: int = 16,
                  dataloader_workers: int = 16,
@@ -150,19 +150,24 @@ def parse_params(params: RunParams, model:FasterRCNN, dataset: AleketDataset):
               optimizer, learning rate scheduler, augmentation pipeline, total epochs,
               and run path.
     """
-    train_indices = []
-    val_indices = []
+    train_samples = []
+    val_samples = []
 
     for indices in params.train_set.values():
-        train_indices.extend(indices)
+        train_samples.extend(indices)
     for indices in params.validation_set.values():
-        val_indices.extend(indices)
+        val_samples.extend(indices)
 
-    train_dataloader, val_dataloader = create_dataloaders(dataset,
-                                                          train_indices,
-                                                          val_indices,
-                                                          params.batch_size,
-                                                          params.dataloader_workers)
+    train_dataloader = dataset.create_dataloader(
+        params.batch_size, 
+        params.dataloader_workers,
+        train_samples,
+    )
+    val_dataloader = dataset.create_dataloader(
+        params.batch_size, 
+        params.dataloader_workers,
+        val_samples,
+    )
 
     optimizer = get_optimizer(model, params.optimizer)
     lr_scheduler = get_lr_scheduler(optimizer, params.lr_scheduler)

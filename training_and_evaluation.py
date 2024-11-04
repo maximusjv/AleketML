@@ -18,8 +18,7 @@ from torchvision.models.detection import FasterRCNN
 from aleket_dataset import AleketDataset
 from metrics import LOSSES_NAMES, VALIDATION_METRICS, Evaluator
 from run_params import RunParams, parse_params
-from utils import StatsTracker, TrainingLogger, load_checkpoint, save_checkpoint, create_dataloaders
-
+from utils import StatsTracker, TrainingLogger, load_checkpoint, save_checkpoint
 
 def train(model:FasterRCNN,
           dataset: AleketDataset,
