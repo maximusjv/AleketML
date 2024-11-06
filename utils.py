@@ -6,20 +6,13 @@ import os
 import time
 from typing import Optional
 
-# Third-Party Libraries
-from PIL import Image
-import numpy as np
-
-
 # PyTorch
 import torch
-from torch.utils.data import DataLoader, Subset
 from torchvision.models.detection import FasterRCNN, fasterrcnn_resnet50_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torch.optim import SGD
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from aleket_dataset import AleketDataset
 from metrics import VALIDATION_METRICS, LOSSES_NAMES
 
 
@@ -49,100 +42,6 @@ def make_patches(
             patch_boxes.append(patch_box)
 
     return padded_width, padded_height, patch_boxes
-
-
-def split_dataset(dataset: AleketDataset,
-                  dataset_fraction: float, 
-                  validation_fraction: float,
-                  generator: np.random.Generator,
-                  ) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
-    """Splits the dataset into train and validation sets.
-
-    Splits the dataset into train and validation sets, ensuring that all patches 
-    from the same full image are kept together in the same set.
-
-    Args:
-        dataset (AleketDataset): The dataset to split.
-        dataset_fraction (float): The fraction of the dataset to use (for debugging/testing).
-        validation_fraction (float): The fraction of the used dataset to allocate for validation.
-        generator (np.random.Generator): A NumPy random generator for reproducible splitting.
-
-    Returns:
-        tuple[dict[str, list[int]], dict[str, list[int]]]: A tuple containing two dictionaries:
-            - The first dictionary maps full image IDs to lists of patch indices for the training set.
-            - The second dictionary maps full image IDs to lists of patch indices for the validation set.
-    """
-    by_full_images = dataset.by_full_images()
-    
-    full_images = list(by_full_images.keys())
-    full_images = generator.permutation(full_images)
-    
-    total_num_samples = max(2,int(len(dataset.images) * dataset_fraction))
-    validation_num_samples = max(1,int(validation_fraction * total_num_samples))
-    train_num_samples = total_num_samples - validation_num_samples
-    
-    train_len = 0
-    train_set = {}
-    validation_len = 0
-    validation_set = {}
-    
-    for images in full_images:
-        if validation_len < validation_num_samples:
-            validation_set[images] = by_full_images[images]
-            validation_len += len(by_full_images[images])
-        elif train_len < train_num_samples:
-            train_set[images] = by_full_images[images]
-            train_len += len(by_full_images[images])
-    
-    
-    return train_set, validation_set
-    
-    
-def collate_fn(batch):
-    """Collates data samples into batches for the dataloader."""
-    return tuple(zip(*batch))
-
-
-# Dataset split
-def create_dataloaders(
-    dataset: AleketDataset,
-    train_indices: list[int],
-    val_indices: list[int],
-    batch_size: int,
-    num_workers: int,
-) -> tuple[DataLoader, DataLoader]:
-    """Creates DataLoaders for split dataset.
-    Args:
-        dataset: The AleketDataset to divide.
-        train_indices: Dataset indicies to train.
-        val_indices: Dataset indicies to validate.
-        batch_size: The batch size for the DataLoaders.
-        num_workers: The number of worker processes for data loading.
-    Returns:
-        A tuple containing the training DataLoader and the validation DataLoader.
-    """
-    
-    
-    train_dataset = Subset(dataset, train_indices)
-    val_dataset = Subset(dataset, val_indices)
-
-    
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        collate_fn=collate_fn,
-        num_workers=num_workers,
-    )
-
-    val_dataloader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        collate_fn=collate_fn,
-        num_workers=num_workers,
-    )
-
-    return train_dataloader, val_dataloader
 
 
 class StatsTracker:

@@ -1,14 +1,18 @@
 
 import json
 import os
-from typing import Any
+from typing import Any, Optional
 
-from aleket_dataset import AleketDataset
-from utils import create_dataloaders, get_lr_scheduler, get_optimizer
+from torch.optim import SGD
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+from aleket_dataset import AleketDataset, create_dataloaders
+from utils import get_lr_scheduler, get_optimizer
 
 # Torchvision
 from torchvision.transforms import v2
 from torchvision.models.detection import FasterRCNN
+
 
 def default_augmentation() -> dict:
     """
@@ -53,7 +57,7 @@ def default_optimizer() -> dict:
     }
     
 
-def default_lrscheduler() -> dict:
+def default_lr_scheduler() -> dict:
     return {
         "factor": 0.5,
         "patience": 10,
@@ -73,11 +77,7 @@ class RunParams:
         batch_size (int): Batch size for training.
         dataloader_workers (int): Number of workers for the dataloader.
         total_epochs (int): Total number of training epochs.
-        lr (float): Learning rate.
-        lr_decay_factor (float): Factor for learning rate decay.
-        lr_decay_milestones (list): Epochs at which to decay the learning rate.
-        momentum (float): Momentum for the optimizer.
-        weight_decay (float): Weight decay for the optimizer.
+
 
     Methods:
         load(path): Loads parameters from a JSON file.
@@ -86,16 +86,16 @@ class RunParams:
     
     def __init__(self,
                  run_name: str = "default",
-                 train_set: dict[str, list[int]] = None,
-                 validation_set: dict[str, list[int]] = None,
+                 train_set: dict[str, list[str]] = None,
+                 validation_set: dict[str, list[str]] = None,
                  
                  batch_size: int = 16,
                  dataloader_workers: int = 16,
                  total_epochs: int = 100,
                  
                  augmentation: dict[str, Any] = None,
-                 optimizer = None,
-                 lr_scheduler = None
+                 optimizer: dict[str, Any] = None,
+                 lr_scheduler: dict[str, Any] = None
                  
                 ):
 
@@ -104,11 +104,11 @@ class RunParams:
         if not train_set:
             train_set = {}    
         if not validation_set:
-            train_set = {}    
+            validation_set = {}    
         if not optimizer:
             optimizer = default_optimizer()
         if not lr_scheduler:
-           lr_scheduler = default_lrscheduler()
+           lr_scheduler = default_lr_scheduler()
            
            
         self.run_name = run_name
@@ -150,17 +150,17 @@ def parse_params(params: RunParams, model:FasterRCNN, dataset: AleketDataset):
               optimizer, learning rate scheduler, augmentation pipeline, total epochs,
               and run path.
     """
-    train_indices = []
-    val_indices = []
+    train_names = []
+    val_names = []
 
     for indices in params.train_set.values():
-        train_indices.extend(indices)
+        train_names.extend(indices)
     for indices in params.validation_set.values():
-        val_indices.extend(indices)
+        val_names.extend(indices)
 
     train_dataloader, val_dataloader = create_dataloaders(dataset,
-                                                          train_indices,
-                                                          val_indices,
+                                                          train_names,
+                                                          val_names,
                                                           params.batch_size,
                                                           params.dataloader_workers)
 
