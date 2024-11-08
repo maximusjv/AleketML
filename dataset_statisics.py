@@ -117,7 +117,7 @@ def count_analyze(dataset: AleketDataset,
 
 def visualize_bboxes(img: Image,
                      bboxes: list[list[int]],
-                     labels: list[str],
+                     labels: list[str | int],
                      linewidth = 3,
                      fontsize = 16,
                      save_path: Optional[str] = None
@@ -135,6 +135,8 @@ def visualize_bboxes(img: Image,
     """
 
     class_colors = {
+        1: 'green',
+        2: 'red',
         'healthy': 'green',
         'not healthy': 'red'
     }
