@@ -1,7 +1,8 @@
 # Standard Library
 import csv
 import os
-from typing import  Optional
+import time
+from typing import Optional, Dict, Any
 
 # Third-party Libraries
 import PIL
@@ -10,6 +11,8 @@ from PIL.Image import Image
 
 # PyTorch
 import torch
+from torch import Tensor
+from torch.utils.data import Dataset, DataLoader, Subset
 
 # Torchvision
 import torchvision.tv_tensors as tv_tensors
@@ -17,11 +20,79 @@ from torchvision.models.detection import FasterRCNN
 import torchvision.transforms.v2 as v2
 from torchvision.ops import batched_nms
 
-from aleket_dataset import AleketDataset
+from aleket_dataset import AleketDataset, collate_fn
 from dataset_statisics import visualize_bboxes
 from metrics import LOSSES_NAMES, VALIDATION_METRICS, Evaluator
 from utils import make_patches
 
+class Pacther(Dataset): 
+    def __init__(
+        self,
+        images: list[str | Image | torch.Tensor] | Dataset,
+        patch_size: int,
+        patch_overlap: float,
+        ):
+        self.images = images
+        self.patch_size = patch_size
+        self.patch_overlap = patch_overlap
+    
+    def preprocess(self, image: Image | torch.Tensor | str, idx: int) -> tuple[list[list[int]], torch.Tensor]:
+        if isinstance(image, str):
+            image = PIL.Image.open(image)
+        
+        if isinstance(image, Image):
+            image = v2.functional.to_image(image)
+    
+        ht, wd = image.shape[-2:]
+        padded_width, padded_height, patches = make_patches(
+            wd, ht, self.patch_size, self.patch_overlap
+        )
+        image = v2.functional.pad(image, padding=[0, 0, padded_width-wd, padded_height-ht],fill=0.0)
+        image = v2.functional.to_dtype(image,  dtype=torch.float32, scale=True)
+        
+        patched_images = torch.stack([v2.functional.crop(image, y1, x1, y2-y1, x2-x1) 
+                               for (x1, y1, x2, y2) in patches])
+        
+        return patches, patched_images, idx
+    
+    def __len__(self):
+        """Returns the total number of images in the dataset."""
+        return len(self.images)
+    
+    def postprocess(self,
+                    patches: list[list[int]],
+                    predictions: list[dict[str, torch.Tensor]]
+    ) -> dict[str, torch.Tensor]:
+        
+        boxes = []
+        labels = []
+        scores = []
+    
+        for prediction, patch in zip(predictions, patches):
+            x1, y1, _, _ = patch
+            prediction["boxes"][:, [0, 2]] += x1
+            prediction["boxes"][:, [1, 3]] += y1
+            if len(prediction["boxes"]) != 0:
+                boxes.append(prediction["boxes"])
+                labels.append(prediction["labels"])
+                scores.append(prediction["scores"])
+           
+        labels = torch.cat(labels, dim=0)
+        boxes = torch.cat(boxes, dim=0)
+        scores = torch.cat(scores, dim=0)
+        
+        return {
+            "boxes": boxes,
+            "scores": scores,
+            "labels": labels,
+        }
+        
+    def __getitem__(self, idx: int) -> tuple[list[list[int]], torch.Tensor]:
+        if isinstance(self.images, Dataset):
+            image, target = self.images[idx]
+            return self.preprocess(image, target["image_id"])
+        return self.preprocess(self.images[idx], idx)
+        
 
 class Predictor:
     def __init__(
@@ -31,6 +102,8 @@ class Predictor:
         detections_per_patch: int = 100,
         patch_size: int = 1024,
         patch_overlap: float = 0.2,
+        images_per_batch: int = 4,
+        patches_per_batch: int = 4,
     ):
 
         self.device = device
@@ -40,63 +113,47 @@ class Predictor:
         self.patch_size = patch_size
         self.patch_overlap = patch_overlap
         self.detections_per_patch = detections_per_patch
-
-    def get_detections(
+        self.patches_per_batch = patches_per_batch
+        self.images_per_batch = images_per_batch
+        
+        
+    @torch.no_grad()
+    def get_predictions(
         self,
-        image: Image | torch.Tensor,
+        images: list[Image | torch.Tensor | str] | Dataset,
         nms_thresh: float,
         score_thresh: float,
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[int, dict[str, Tensor]]:
+
         self.model.roi_heads.score_thresh = score_thresh
         self.model.roi_heads.nms_thresh = nms_thresh
         self.model.roi_heads.detections_per_img = self.detections_per_patch
-
-        if isinstance(image, Image):
-            image = v2.functional.to_image(image)
+        self.model.eval()
+     
+        patcher = Pacther(images, self.patch_size, self.patch_overlap)
+        dataloader = DataLoader(patcher,
+                                batch_size=self.images_per_batch,
+                                num_workers=self.images_per_batch,
+                                collate_fn=collate_fn,
+                                )
+        
+        result = {}
+        
+        for (batched_patches, batched_images, batched_idxs) in dataloader:
+            for patches, imgs, idx in zip(batched_patches, batched_images, batched_idxs):
+                time_it = time.time()
+                predictions = []
+                for b_imgs in torch.split(imgs, self.patches_per_batch):
+                    b_imgs = b_imgs.to(self.device)
+                    predictions.extend(self.model(b_imgs))
+                predictions = patcher.postprocess(patches, predictions)
+                result[idx] = predictions
+                print(time.time() - time_it)
     
-        wd, ht = image.shape[-2:]
-        padded_width, padded_height, patches = make_patches(
-            wd, ht, self.patch_size, self.patch_overlap
-        )
-        image = v2.functional.pad(image, padding=[0, 0, padded_width-wd, padded_height-ht],fill=0.0)
-        image = v2.functional.to_dtype(image,  dtype=torch.float32, scale=True)
-        
-        boxes = []
-        labels = []
-        scores = []
+        torch.cuda.empty_cache()
+        return result
 
-        with torch.no_grad():
-            self.model.eval()
-            for patch_box in patches:
-                x1, y1, x2, y2 = patch_box
-                patched_img = v2.functional.crop(image, y1, x1, y2-y1, x2-x1).to(device=self.device)
-
-                predictions = self.model([patched_img])[0]
-                predictions["boxes"][:, 0] += x1
-                predictions["boxes"][:, 2] += x1
-                predictions["boxes"][:, 1] += y1
-                predictions["boxes"][:, 3] += y1
-
-                if len(predictions["labels"]) != 0:
-                    labels.append(predictions["labels"])
-                    boxes.append(predictions["boxes"])
-                    scores.append(predictions["scores"])
-
-        labels = torch.cat(labels, dim=0)
-        boxes = torch.cat(boxes, dim=0)
-        scores = torch.cat(scores, dim=0)
-        
-        keep = batched_nms(boxes,scores,labels,nms_thresh)
-        boxes = boxes[keep]
-        labels = labels[keep]
-        scores = scores[keep]
-
-        return {
-            "labels": labels,
-            "boxes": boxes,
-            "scores": scores,
-        }
-
+    @torch.no_grad()
     def eval_dataset(
         self,
         dataset: AleketDataset,
@@ -108,22 +165,20 @@ class Predictor:
 
         if not evaluator:
             evaluator = Evaluator(dataset, indices)
-            
-        with torch.no_grad():
-            all_dts = {}
-            for idx in indices:
-                img, _ = dataset[idx]
-                dts = self.get_detections(img, nms_thresh, score_thresh)
-                all_dts[idx] = dts
 
-        return evaluator.eval(all_dts)
+        subset = Subset(dataset, indices)
+        predictions = self.get_predictions(subset, nms_thresh, score_thresh)
+      
 
+        return evaluator.eval(predictions)
+
+    @torch.no_grad()
     def infer(self,
               image: Image,
               nms_thresh: float,
               score_thresh: float,
               ) -> dict:
-        dts = self.get_detections(image, nms_thresh, score_thresh)
+        dts = self.get_predictions([image], nms_thresh, score_thresh)[0]
         bboxes = dts["boxes"].cpu().numpy()
         labels = dts["labels"].cpu().numpy()
         
@@ -147,7 +202,7 @@ class Predictor:
             "area": area,
         }
 
-
+    @torch.no_grad()
     def infer_images(self,
                     images_path: list[str],
                     output_dir: str,
