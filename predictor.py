@@ -1,7 +1,9 @@
 # Standard Library
 import csv
+import math
 import os
-from typing import  Optional
+import time
+from typing import Optional
 
 # Third-party Libraries
 import PIL
@@ -10,93 +12,179 @@ from PIL.Image import Image
 
 # PyTorch
 import torch
+from torch import Tensor
+from torch.utils.data import Dataset, DataLoader, Subset
 
 # Torchvision
-import torchvision.tv_tensors as tv_tensors
 from torchvision.models.detection import FasterRCNN
-import torchvision.transforms.v2 as v2
+import torchvision.transforms.v2.functional as F
 from torchvision.ops import batched_nms
 
-from aleket_dataset import AleketDataset
+from aleket_dataset import AleketDataset, collate_fn
 from dataset_statisics import visualize_bboxes
-from metrics import LOSSES_NAMES, VALIDATION_METRICS, Evaluator
+from metrics import Evaluator
 from utils import make_patches
 
+class Pacther(Dataset): 
+    def __init__(
+        self,
+        images: list[str | Image | torch.Tensor] | Dataset,
+        size_factor: float,
+        patch_size: int,
+        patch_overlap: float,
+        ):
+        self.images = images
+        self.size_factor = size_factor
+        self.patch_size = patch_size
+        self.patch_overlap = patch_overlap
+        
+    @torch.no_grad()
+    def preprocess(self, image: Image | torch.Tensor | str, idx: int) -> tuple[list[list[int]], torch.Tensor]:
+        if isinstance(image, str):
+            image = PIL.Image.open(image)
+        
+        if isinstance(image, Image):
+            image = F.to_image(image)
+    
+        ht, wd =  image.shape[-2:]
+        ht = int(ht * self.size_factor)
+        wd = int(wd * self.size_factor)
+        
+        padded_width, padded_height, patches = make_patches(
+            wd, ht, self.patch_size, self.patch_overlap
+        )
+        
+        image = F.resize(image, size=(ht, wd))
+        image = F.pad(image, padding=[0, 0, padded_width-wd, padded_height-ht],fill=0.0)
+        image = F.to_dtype(image,  dtype=torch.float32, scale=True)
+        
+        patched_images = torch.stack([F.crop(image, y1, x1, y2-y1, x2-x1) 
+                               for (x1, y1, x2, y2) in patches])
+        
+        return patches, patched_images, idx
+    
+    def __len__(self):
+        """Returns the total number of images in the dataset."""
+        return len(self.images)
+    @torch.no_grad()
+    def postprocess(self,
+                    patches: list[list[int]],
+                    predictions: list[dict[str, torch.Tensor]],
+                    nms_thresh: float,
+                    max_detections: int,
+    ) -> dict[str, torch.Tensor]:
+        
+        boxes = []
+        labels = []
+        scores = []
+    
+        for prediction, patch in zip(predictions, patches):
+            x1, y1, _, _ = patch
+            prediction["boxes"][:, [0, 2]] += x1
+            prediction["boxes"][:, [1, 3]] += y1
+            if len(prediction["boxes"]) != 0:
+                boxes.append(prediction["boxes"])
+                labels.append(prediction["labels"])
+                scores.append(prediction["scores"])
+        
+          
+        labels = torch.cat(labels, dim=0)
+        boxes = torch.cat(boxes, dim=0)
+        scores = torch.cat(scores, dim=0)
+        
+        boxes /= self.size_factor
+        keep = batched_nms(boxes, scores, labels, nms_thresh)
+
+        boxes = boxes[keep]
+        labels = labels[keep]
+        scores = scores[keep]
+
+        boxes = boxes[:max_detections]
+        scores = scores[:max_detections]
+        labels = labels[:max_detections]
+
+        return {
+            "boxes": boxes.cpu(),
+            "scores": scores.cpu(),
+            "labels": labels.cpu(),
+        }
+    @torch.no_grad()   
+    def __getitem__(self, idx: int) -> tuple[list[list[int]], torch.Tensor]:
+        if isinstance(self.images, Dataset):
+            image, target = self.images[idx]
+            return self.preprocess(image, target["image_id"])
+        print(self.images[idx])
+        r = self.preprocess(self.images[idx], idx)
+
+        return r
+        
 
 class Predictor:
     def __init__(
         self,
         model: FasterRCNN,
         device: torch.device,
+        images_per_batch: int = 4,
+        image_size_factor: float = 0.8,
+        per_image_detections: int = 300,
+        
         detections_per_patch: int = 100,
+        patches_per_batch: int = 4,
         patch_size: int = 1024,
         patch_overlap: float = 0.2,
     ):
 
         self.device = device
-        self.classes = list(AleketDataset.NUM_TO_CLASSES.values())
-        self.classes = self.classes[1:] # remove background class
+        self.classes = list(AleketDataset.NUM_TO_CLASSES.values())[1:] # remove background class
         self.model = model.to(device)
+        self.images_per_batch = images_per_batch
+        self.image_size_factor = image_size_factor
+        self.per_image_detections = per_image_detections
+
         self.patch_size = patch_size
         self.patch_overlap = patch_overlap
         self.detections_per_patch = detections_per_patch
-
-    def get_detections(
+        self.patches_per_batch = patches_per_batch
+      
+        
+        
+    @torch.no_grad()
+    def get_predictions(
         self,
-        image: Image | torch.Tensor,
+        images: list[Image | torch.Tensor | str] | Dataset,
         nms_thresh: float,
         score_thresh: float,
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[int, dict[str, Tensor]]:
+
         self.model.roi_heads.score_thresh = score_thresh
         self.model.roi_heads.nms_thresh = nms_thresh
         self.model.roi_heads.detections_per_img = self.detections_per_patch
-
-        if isinstance(image, Image):
-            image = v2.functional.to_image(image)
+        self.model.eval()
+     
+        patcher = Pacther(images, self.image_size_factor, self.patch_size, self.patch_overlap)
+        dataloader = DataLoader(patcher,  
+                                batch_size=self.images_per_batch,
+                                num_workers=self.images_per_batch,
+                                collate_fn=collate_fn,
+                                )
+        
+        result = {}
+        
+        for (batched_patches, batched_images, batched_idxs) in dataloader:
+            for patches, imgs, idx in zip(batched_patches, batched_images, batched_idxs):
+                predictions = []
+                for b_imgs in torch.split(imgs, self.patches_per_batch):
+                    b_imgs = b_imgs.to(self.device)
+                    predictions.extend(self.model(b_imgs))
+                predictions = patcher.postprocess(patches, predictions, nms_thresh, self.per_image_detections)
+                result[idx] = predictions
+        
     
-        wd, ht = image.shape[-2:]
-        padded_width, padded_height, patches = make_patches(
-            wd, ht, self.patch_size, self.patch_overlap
-        )
-        image = v2.functional.pad(image, padding=[0, 0, padded_width-wd, padded_height-ht],fill=0.0)
-        image = v2.functional.to_dtype(image,  dtype=torch.float32, scale=True)
-        
-        boxes = []
-        labels = []
-        scores = []
+        del patcher
+        del dataloader
+        return result
 
-        with torch.no_grad():
-            self.model.eval()
-            for patch_box in patches:
-                x1, y1, x2, y2 = patch_box
-                patched_img = v2.functional.crop(image, y1, x1, y2-y1, x2-x1).to(device=self.device)
-
-                predictions = self.model([patched_img])[0]
-                predictions["boxes"][:, 0] += x1
-                predictions["boxes"][:, 2] += x1
-                predictions["boxes"][:, 1] += y1
-                predictions["boxes"][:, 3] += y1
-
-                if len(predictions["labels"]) != 0:
-                    labels.append(predictions["labels"])
-                    boxes.append(predictions["boxes"])
-                    scores.append(predictions["scores"])
-
-        labels = torch.cat(labels, dim=0)
-        boxes = torch.cat(boxes, dim=0)
-        scores = torch.cat(scores, dim=0)
-        
-        keep = batched_nms(boxes,scores,labels,nms_thresh)
-        boxes = boxes[keep]
-        labels = labels[keep]
-        scores = scores[keep]
-
-        return {
-            "labels": labels,
-            "boxes": boxes,
-            "scores": scores,
-        }
-
+    @torch.no_grad()
     def eval_dataset(
         self,
         dataset: AleketDataset,
@@ -105,56 +193,46 @@ class Predictor:
         score_thresh: float,
         evaluator: Optional[Evaluator] = None,
     ) -> dict[str, float]:
-
         if not evaluator:
             evaluator = Evaluator(dataset, indices)
-            
-        with torch.no_grad():
-            all_dts = {}
-            for idx in indices:
-                img, _ = dataset[idx]
-                dts = self.get_detections(img, nms_thresh, score_thresh)
-                all_dts[idx] = dts
+        subset = Subset(dataset, indices)
+        predictions = self.get_predictions(subset, nms_thresh, score_thresh)
+        return evaluator.eval(predictions)
 
-        return evaluator.eval(all_dts)
-
-    def infer(self,
-              image: Image,
-              nms_thresh: float,
-              score_thresh: float,
+    @torch.no_grad()
+    def analyze(self,
+              prediction: dict[str, Tensor],
               ) -> dict:
-        dts = self.get_detections(image, nms_thresh, score_thresh)
-        bboxes = dts["boxes"].cpu().numpy()
-        labels = dts["labels"].cpu().numpy()
-        
+       
+        bboxes = prediction["boxes"].numpy()
+        labels = prediction["labels"].numpy()
+        labels_names = [self.classes[i-1] for i in labels]
         count = {}
         area = {}
-        with torch.no_grad():
-            
-            for class_id, class_name in enumerate(self.classes):  # skips background
-           
-                bboxes_by_class = bboxes[np.where(labels == class_id)]
-                count[class_name] = len(bboxes_by_class)
-                area[class_name] = np.sum(
-                    (bboxes_by_class[:, 2] - bboxes_by_class[:, 0])
-                    * (bboxes_by_class[:, 3] - bboxes_by_class[:, 1])
-                    )
+        for class_id, class_name in enumerate(self.classes):  # skips background
+            bboxes_by_class = bboxes[np.where(labels == class_id+1)]
+            count[class_name] = len(bboxes_by_class)
+            area[class_name] = np.sum(
+                (bboxes_by_class[:, 2] - bboxes_by_class[:, 0]) / 2.0
+                * (bboxes_by_class[:, 3] - bboxes_by_class[:, 1]) / 2.0
+                ) * math.pi # area of eclipse inside the rectangle
 
+       
         return {
             "bboxes": bboxes.tolist(),
-            "labels": labels.tolist(),
+            "labels": labels_names,
             "count": count,
             "area": area,
         }
 
-
-    def infer_images(self,
-                    images_path: list[str],
-                    output_dir: str,
-                    nms_thresh: float,
-                    score_thresh: float,
-                    save_bboxes: bool = True,
-                    save_annotated_images: bool = False) -> None:
+    @torch.no_grad()
+    def infer(self,
+              images: list[str | Image | torch.Tensor],
+              output_dir: str,
+              nms_thresh: float,
+              score_thresh: float,
+              save_bboxes: bool = True,
+              save_annotated_images: bool = False) -> None:
 
         output_dir = os.path.normpath(output_dir)
         os.makedirs(output_dir, exist_ok=True)
@@ -169,40 +247,49 @@ class Predictor:
         if annotated_dir:
             os.makedirs(annotated_dir, exist_ok=True)
 
-        with (open(stats_file_path, "w") as stats_file):
-            stats_writer = csv.writer(stats_file, delimiter="")
+
+        
+        with open(stats_file_path, "w", newline='') as stats_file:
+            stats_writer = csv.writer(stats_file, delimiter=",")
             headers = ["Image"]
             headers.extend([f"{class_name} area" for class_name in self.classes])
             headers.extend([f"{class_name} count" for class_name in self.classes])
             stats_writer.writerow(headers)
-
-            for img_path in images_path:
-                img_name = os.path.basename(img_name)
-                img = PIL.Image.open(img_path)
-                stats = self.infer(img, nms_thresh, score_thresh)
+            
+            predictions = self.get_predictions(images, nms_thresh, score_thresh)
+            for idx, pred in predictions.items():
+                image = images[idx]
+                image_name = os.path.basename(image) if isinstance(image, str) else str(idx)
+                stats = self.analyze(pred)
 
                 area = stats["area"]
                 count = stats["count"]
                 labels = stats["labels"]
                 bboxes = stats["bboxes"]
                 
-                row = [os.path.basename(img_path)]
+                row = [image_name]
                 row.extend([area[class_name] for class_name in self.classes])
                 row.extend([count[class_name] for class_name in self.classes])
-                stats_writer.writerows(row)
+                stats_writer.writerow(row)
 
                 if save_bboxes:
-                    bboxes_file_path = os.path.join(bboxes_dir, f"{img_name}.csv")
-                    with open(bboxes_file_path, "w") as bboxes_file:
-                        bboxes_writer = csv.writer(bboxes_file, delimiter="")
+                    bboxes_file_path = os.path.join(bboxes_dir, f"{image_name}.csv")
+                    with open(bboxes_file_path, "w", newline='') as bboxes_file:
+                        bboxes_writer = csv.writer(bboxes_file, delimiter=",")
                         headers = ["xmin", "ymin", "xmax", "ymax", "class name"]
                         bboxes_writer.writerow(headers)
-                        rows = [bbox + [class_name] for bbox, class_name in zip(bboxes, labels)]
-                        bboxes_writer.writerows(rows)
+                        for (x1, y1, x2, y2), class_name in zip(bboxes, labels):
+                            bboxes_writer.writerow([int(x1), int(y1), int(x2), int(y2), class_name])
+
                 
                 if save_annotated_images:
-                    annotated_image_path = os.path.join(annotated_dir, f"{img_name}_annotated.png")
-                    visualize_bboxes(img, bboxes, labels, save_path=annotated_image_path)
+                    annotated_image_path = os.path.join(annotated_dir, f"{image_name}_annotated.jpeg")
+                    if isinstance(image, str):
+                        image = PIL.Image.open(image)
+                    if isinstance(image, torch.Tensor):
+                        image = F.to_pil_image(image)
+
+                    visualize_bboxes(image, bboxes, labels, save_path=annotated_image_path)
 
                         
 
