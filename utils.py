@@ -8,7 +8,7 @@ from typing import Optional
 
 # PyTorch
 import torch
-from torchvision.models.detection import FasterRCNN, fasterrcnn_resnet50_fpn
+from torchvision.models.detection import FasterRCNN, fasterrcnn_resnet50_fpn, fasterrcnn_resnet50_fpn_v2
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torch.optim import SGD
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -203,7 +203,7 @@ def get_model(device: torch.device, trainable_backbone_layers: int = 3) -> Faste
     Returns:
         FasterRCNN: The Faster R-CNN model with the modified classification head.
     """
-    model = fasterrcnn_resnet50_fpn(
+    model = fasterrcnn_resnet50_fpn_v2(
         weights = "DEFAULT",
         trainable_backbone_layers = trainable_backbone_layers
     )
