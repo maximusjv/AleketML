@@ -1,17 +1,16 @@
 
 import json
 import os
-from typing import Any, Optional
-
-from torch.optim import SGD
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-
-from aleket_dataset import AleketDataset, create_dataloaders
-from utils import get_lr_scheduler, get_optimizer
+from typing import Any
 
 # Torchvision
 from torchvision.transforms import v2
 from torchvision.models.detection import FasterRCNN
+
+from aleket_dataset import AleketDataset, create_dataloaders
+from utils import get_lr_scheduler, get_optimizer
+
+
 
 
 def default_augmentation() -> dict:

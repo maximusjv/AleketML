@@ -113,7 +113,6 @@ class Pacther(Dataset):
         if isinstance(self.images, Dataset):
             image, target = self.images[idx]
             return self.preprocess(image, target["image_id"])
-        print(self.images[idx])
         r = self.preprocess(self.images[idx], idx)
 
         return r
@@ -126,7 +125,7 @@ class Predictor:
         device: torch.device,
         images_per_batch: int = 4,
         image_size_factor: float = 0.8,
-        per_image_detections: int = 300,
+        detections_per_image: int = 300,
         
         detections_per_patch: int = 100,
         patches_per_batch: int = 4,
@@ -139,7 +138,7 @@ class Predictor:
         self.model = model.to(device)
         self.images_per_batch = images_per_batch
         self.image_size_factor = image_size_factor
-        self.per_image_detections = per_image_detections
+        self.per_image_detections = detections_per_image
 
         self.patch_size = patch_size
         self.patch_overlap = patch_overlap
