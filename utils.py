@@ -275,12 +275,12 @@ def load_checkpoint(model: FasterRCNN, checkpoint_path: str) -> tuple[FasterRCNN
 
     model.load_state_dict(save_state["model_state_dict"])
     optimizer = get_optimizer(model)
-    optimizer.load_state_dict(save_state["optimizer_state_dict"])
-
-    epoch_trained = save_state["epoch_trained"]
-
     lr_scheduler = get_lr_scheduler(optimizer)
-    lr_scheduler.load_state_dict(save_state["lr_scheduler_state_dict"])
-
-    return model, optimizer, lr_scheduler, epoch_trained
+    epoch_trained = save_state["epoch_trained"]
+    
+    try:
+        optimizer.load_state_dict(save_state["optimizer_state_dict"])
+        lr_scheduler.load_state_dict(save_state["lr_scheduler_state_dict"])
+    finally: 
+        return model, optimizer, lr_scheduler, epoch_trained
 
