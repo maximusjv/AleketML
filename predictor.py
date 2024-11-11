@@ -230,9 +230,13 @@ class Predictor:
               output_dir: str,
               nms_thresh: float,
               score_thresh: float,
-              save_bboxes: bool = True,
-              save_annotated_images: bool = False) -> None:
+              save_bboxes: bool = False,
+              num_of_annotated_images_to_save: int = 0) -> None:
 
+
+        if num_of_annotated_images_to_save == -1:
+            num_of_annotated_images_to_save = len(images)
+        
         output_dir = os.path.normpath(output_dir)
         os.makedirs(output_dir, exist_ok=True)
 
@@ -242,12 +246,10 @@ class Predictor:
         if bboxes_dir:
             os.makedirs(bboxes_dir, exist_ok=True)
 
-        annotated_dir = os.path.join(output_dir, "annotated") if save_annotated_images else None
+        annotated_dir = os.path.join(output_dir, "annotated") if num_of_annotated_images_to_save > 0 else None
         if annotated_dir:
             os.makedirs(annotated_dir, exist_ok=True)
 
-
-        
         with open(stats_file_path, "w", newline='') as stats_file:
             stats_writer = csv.writer(stats_file, delimiter=",")
             headers = ["Image"]
@@ -281,7 +283,8 @@ class Predictor:
                             bboxes_writer.writerow([int(x1), int(y1), int(x2), int(y2), class_name])
 
                 
-                if save_annotated_images:
+                if num_of_annotated_images_to_save > 0:
+                    num_of_annotated_images_to_save -= 1
                     annotated_image_path = os.path.join(annotated_dir, f"{image_name}_annotated.jpeg")
                     if isinstance(image, str):
                         image = PIL.Image.open(image)
