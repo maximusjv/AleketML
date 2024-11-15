@@ -426,6 +426,7 @@ class Evaluator:
             "pr_curve": pr_curve,
             "recall": recall,
             "precision": precision,
+            "quatitative_results": q_results,
 
         }
 
