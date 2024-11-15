@@ -270,8 +270,8 @@ class Predictor:
                 bboxes = stats["bboxes"]
                 
                 row = [image_name]
-                row.extend([area[class_name] for class_name in self.classes])
-                row.extend([count[class_name] for class_name in self.classes])
+                row.extend([int(area[class_name]) for class_name in self.classes])
+                row.extend([int(count[class_name]) for class_name in self.classes])
                 stats_writer.writerow(row)
 
                 if save_bboxes:
