@@ -98,15 +98,15 @@ class RunParams:
                  
                 ):
 
-        if not augmentation:
+        if augmentation is None:
             augmentation = default_augmentation()
-        if not train_set:
+        if train_set is None:
             train_set = {}    
-        if not validation_set:
+        if validation_set is None:
             validation_set = {}    
-        if not optimizer:
+        if  optimizer is None:
             optimizer = default_optimizer()
-        if not lr_scheduler:
+        if lr_scheduler is None:
            lr_scheduler = default_lr_scheduler()
            
            
@@ -185,7 +185,7 @@ def parse_params(params: RunParams, model:FasterRCNN, dataset: AleketDataset):
     if "color_jitter" in params.augmentation:
         augmentation_list.append(v2.ColorJitter(**params.augmentation["color_jitter"]))
 
-    augmentation = v2.Compose(augmentation_list)
+    augmentation = v2.Compose(augmentation_list) if augmentation_list else None
 
     return {
         "train_loader": train_dataloader,
