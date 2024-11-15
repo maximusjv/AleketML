@@ -6,6 +6,7 @@ import os
 import time
 from typing import Optional
 
+import matplotlib.pyplot as plt
 # PyTorch
 import torch
 from torch import GradScaler
@@ -58,7 +59,7 @@ class StatsTracker:
                                     If None, the statistics are not saved to a file.
     """
 
-    def __init__(self, stats_file: Optional[str] = None) -> None:
+    def __init__(self, stats_file: Optional[str] = None, ) -> None:
         self.train_loss_history = []
         self.val_metrics_history = []
         self.best_val_metric = None
@@ -114,7 +115,7 @@ class StatsTracker:
         Args:
             save_path (str): The path to save the plot to.
         """
-        import matplotlib.pyplot as plt
+
 
         fig, (ax1, ax2) = plt.subplots(2, sharex=True, figsize=(12, 8))
         fig.suptitle("Training Statistics")
@@ -238,7 +239,8 @@ def save_checkpoint(model: FasterRCNN,
                     lr_scheduler: ReduceLROnPlateau,
                     epoch_trained: int,
                     checkpoint_path: str,
-                    scaler: GradScaler) -> None:  # Add scaler to the arguments
+                    scaler: GradScaler,
+                    stats_tracker: StatsTracker) -> None:  # Add scaler to the arguments
     """Saves the model's training checkpoint.
 
     Saves the current state of the model, optimizer, learning rate 
@@ -256,7 +258,7 @@ def save_checkpoint(model: FasterRCNN,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "lr_scheduler_state_dict": lr_scheduler.state_dict(),
-
+        "stats_tracker": stats_tracker,
         "epoch_trained": epoch_trained,
         "scaler_state_dict": scaler.state_dict()  
     }
@@ -286,7 +288,7 @@ def load_checkpoint(model: FasterRCNN,
     optimizer = get_optimizer(model)  # Assuming you have a get_optimizer function
     lr_scheduler = get_lr_scheduler(optimizer)  # Assuming you have a get_lr_scheduler function
     epoch_trained = save_state["epoch_trained"]
-
+    stats_tracker = save_state["stats_tracker"] 
     scaler = GradScaler()  # Initialize a new GradScaler
    
 
@@ -295,4 +297,4 @@ def load_checkpoint(model: FasterRCNN,
         lr_scheduler.load_state_dict(save_state["lr_scheduler_state_dict"])
         scaler.load_state_dict(save_state["scaler_state_dict"])
     finally: 
-        return model, optimizer, lr_scheduler, epoch_trained, scaler
+        return model, optimizer, lr_scheduler, epoch_trained, scaler, stats_tracker

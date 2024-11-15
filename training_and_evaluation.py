@@ -51,34 +51,32 @@ def train(model:FasterRCNN,
     total_epochs = parsed_params["total_epochs"]
     result_path = parsed_params["run_path"]
 
-
     last_checkpoint_path = os.path.join(result_path, "checkpoints", "last.pth")
     best_checkpoint_bath = os.path.join(result_path, "checkpoints", "best.pth")
     params_path = os.path.join(result_path, "params.json")
     validation_graph = os.path.join(result_path, "validation_graph")
     validation_log = os.path.join(result_path, "validation_log.csv")
     
+    if not resume and os.path.exists(result_path): 
+        shutil.rmtree(result_path)
+        
     epoch_trained = 0
     scaler = GradScaler()
-    
     dataset.augmentation = None
     evaluator = Evaluator(dataset, val_dataloader.dataset.indices)
-   
+    stats_tracker = StatsTracker(validation_log)
+    logger = TrainingLogger()
     
     if resume:
         print(f"Resuming from  {last_checkpoint_path}...")
-        model, optimizer, lr_scheduler, epoch_trained = load_checkpoint(model, last_checkpoint_path)
-    else:
-        if os.path.exists(result_path):
-            shutil.rmtree(result_path)
-
+        (model, optimizer, lr_scheduler,
+        epoch_trained, scaler, loaded_stats_tracker) = load_checkpoint(model, last_checkpoint_path)
+        stats_tracker.best_val_metric = loaded_stats_tracker.best_val_metric
+        stats_tracker.train_loss_history = loaded_stats_tracker.train_loss_history
+        stats_tracker.val_metrics_history = loaded_stats_tracker.val_metrics_history
+        
     os.makedirs(os.path.join(result_path, "checkpoints"), exist_ok=True)
-    
     params.save(params_path)
-    
-    
-    stats_tracker = StatsTracker(validation_log)
-    logger = TrainingLogger()
 
     while epoch_trained < total_epochs:
 
@@ -91,8 +89,7 @@ def train(model:FasterRCNN,
         losses = train_one_epoch(
             model, optimizer, train_dataloader, device, scaler 
         )
-
-
+        
         dataset.augmentation = None
         eval_stats = evaluate(
             model, val_dataloader, evaluator, device
@@ -101,18 +98,20 @@ def train(model:FasterRCNN,
         is_best = stats_tracker.update_stats(losses, eval_stats)
         stats_tracker.plot_stats(validation_graph)
 
-        if verbose:
-            logger.log_epoch_end(epoch, losses, eval_stats)
-
         lr_scheduler.step(eval_stats[VALIDATION_METRICS[0]])
 
         epoch_trained = epoch
         if checkpoints:
-            save_checkpoint(model, optimizer, lr_scheduler, epoch_trained, last_checkpoint_path, scaler)  
+            save_checkpoint(model, optimizer, lr_scheduler, epoch_trained,
+                            last_checkpoint_path, scaler, stats_tracker)
             if is_best:
-                save_checkpoint(model, optimizer, lr_scheduler, epoch_trained, best_checkpoint_bath, scaler)
+                save_checkpoint(model,optimizer,lr_scheduler, epoch_trained,
+                                best_checkpoint_bath, scaler, stats_tracker) 
+        if verbose:
+            logger.log_epoch_end(epoch, losses, eval_stats) 
 
-    save_checkpoint(model, optimizer, lr_scheduler, epoch_trained, last_checkpoint_path, scaler) 
+    save_checkpoint(model, optimizer, lr_scheduler, epoch_trained,
+                            last_checkpoint_path, scaler, stats_tracker)
 
 
 
