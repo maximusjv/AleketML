@@ -174,7 +174,8 @@ class Predictor:
                 predictions = []
                 for b_imgs in torch.split(imgs, self.patches_per_batch):
                     b_imgs = b_imgs.to(self.device)
-                    predictions.extend(self.model(b_imgs))
+                    with torch.autocast(device_type=self.device.type, dtype=torch.float16):
+                        predictions.extend(self.model(b_imgs))
                 predictions = patcher.postprocess(patches, predictions, nms_thresh, self.per_image_detections)
                 result[idx] = predictions
         

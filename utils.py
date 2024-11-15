@@ -8,6 +8,7 @@ from typing import Optional
 
 # PyTorch
 import torch
+from torch import GradScaler
 from torchvision.models.detection import FasterRCNN, fasterrcnn_resnet50_fpn, fasterrcnn_resnet50_fpn_v2
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torch.optim import SGD
@@ -230,16 +231,18 @@ def get_lr_scheduler(optimizer: torch.optim.Optimizer, params: dict = None) -> R
     else:
         return ReduceLROnPlateau(optimizer=optimizer, mode="max")
     
-    
+
+
 def save_checkpoint(model: FasterRCNN,
                     optimizer: SGD,
                     lr_scheduler: ReduceLROnPlateau,
                     epoch_trained: int,
-                    checkpoint_path: str) -> None:
+                    checkpoint_path: str,
+                    scaler: GradScaler) -> None:  # Add scaler to the arguments
     """Saves the model's training checkpoint.
 
-    Saves the current state of the model, optimizer, and learning rate 
-    scheduler to a file for later resumption of training.
+    Saves the current state of the model, optimizer, learning rate 
+    scheduler, and GradScaler to a file for later resumption of training.
 
     Args:
         model (FasterRCNN): The Faster R-CNN model to save.
@@ -247,21 +250,27 @@ def save_checkpoint(model: FasterRCNN,
         lr_scheduler (LinearLR): The learning rate scheduler used for training.
         epoch_trained (int): The number of epochs the model has been trained for.
         checkpoint_path (str): The path to save the checkpoint file.
+        scaler (GradScaler): The GradScaler instance used for mixed precision training.
     """
     save_state = {
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "lr_scheduler_state_dict": lr_scheduler.state_dict(),
+
         "epoch_trained": epoch_trained,
+        "scaler_state_dict": scaler.state_dict()  
     }
     torch.save(save_state, checkpoint_path)
 
 
-def load_checkpoint(model: FasterRCNN, checkpoint_path: str) -> tuple[FasterRCNN, SGD, ReduceLROnPlateau, int]:
+def load_checkpoint(model: FasterRCNN, 
+                    checkpoint_path: str
+                    ) -> tuple[FasterRCNN, SGD, ReduceLROnPlateau, int, GradScaler]:
     """Loads a model checkpoint.
 
     Loads a previously saved model checkpoint from the specified path, 
-    including the model state, optimizer state, and learning rate scheduler state.
+    including the model state, optimizer state, learning rate scheduler state, 
+    and GradScaler state.
 
     Args:
         model (FasterRCNN): The Faster R-CNN model to load the state into.
@@ -269,18 +278,21 @@ def load_checkpoint(model: FasterRCNN, checkpoint_path: str) -> tuple[FasterRCNN
 
     Returns:
         tuple: A tuple containing the loaded model, optimizer, 
-               learning rate scheduler, and the number of epochs trained.
+               learning rate scheduler, the number of epochs trained, and the GradScaler instance.
     """
     save_state = torch.load(checkpoint_path, weights_only=False)
 
     model.load_state_dict(save_state["model_state_dict"])
-    optimizer = get_optimizer(model)
-    lr_scheduler = get_lr_scheduler(optimizer)
+    optimizer = get_optimizer(model)  # Assuming you have a get_optimizer function
+    lr_scheduler = get_lr_scheduler(optimizer)  # Assuming you have a get_lr_scheduler function
     epoch_trained = save_state["epoch_trained"]
-    
+
+    scaler = GradScaler()  # Initialize a new GradScaler
+   
+
     try:
         optimizer.load_state_dict(save_state["optimizer_state_dict"])
         lr_scheduler.load_state_dict(save_state["lr_scheduler_state_dict"])
+        scaler.load_state_dict(save_state["scaler_state_dict"])
     finally: 
-        return model, optimizer, lr_scheduler, epoch_trained
-
+        return model, optimizer, lr_scheduler, epoch_trained, scaler

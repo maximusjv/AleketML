@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 # PyTorch
 import torch
-from torch import optim
+from torch import GradScaler, optim
 from torch.utils.data import DataLoader
 
 # Torchvision
@@ -59,10 +59,12 @@ def train(model:FasterRCNN,
     validation_log = os.path.join(result_path, "validation_log.csv")
     
     epoch_trained = 0
+    scaler = GradScaler()
     
     dataset.augmentation = None
     evaluator = Evaluator(dataset, val_dataloader.dataset.indices)
-
+   
+    
     if resume:
         print(f"Resuming from  {last_checkpoint_path}...")
         model, optimizer, lr_scheduler, epoch_trained = load_checkpoint(model, last_checkpoint_path)
@@ -87,8 +89,9 @@ def train(model:FasterRCNN,
 
         dataset.augmentation = augmentation
         losses = train_one_epoch(
-            model, optimizer, train_dataloader, device
+            model, optimizer, train_dataloader, device, scaler 
         )
+
 
         dataset.augmentation = None
         eval_stats = evaluate(
@@ -101,16 +104,15 @@ def train(model:FasterRCNN,
         if verbose:
             logger.log_epoch_end(epoch, losses, eval_stats)
 
-
         lr_scheduler.step(eval_stats[VALIDATION_METRICS[0]])
 
         epoch_trained = epoch
         if checkpoints:
-            save_checkpoint(model, optimizer, lr_scheduler, epoch_trained, last_checkpoint_path)
+            save_checkpoint(model, optimizer, lr_scheduler, epoch_trained, last_checkpoint_path, scaler)  
             if is_best:
-                save_checkpoint(model, optimizer, lr_scheduler, epoch_trained, best_checkpoint_bath)
+                save_checkpoint(model, optimizer, lr_scheduler, epoch_trained, best_checkpoint_bath, scaler)
 
-    save_checkpoint(model, optimizer, lr_scheduler, epoch_trained, last_checkpoint_path)
+    save_checkpoint(model, optimizer, lr_scheduler, epoch_trained, last_checkpoint_path, scaler) 
 
 
 
@@ -119,20 +121,22 @@ def train_one_epoch(
     optimizer: optim.Optimizer,
     dataloader: DataLoader,
     device: torch.device,
+    scaler: GradScaler, 
 ) -> dict[str, float]:
     """
-    Trains the model for one epoch.
+    Trains the model for one epoch using mixed precision training.
 
     Args:
         model (tv_detection.FasterRCNN): The Faster R-CNN model.
         optimizer (optim.Optimizer): The optimizer for training.
         dataloader (DataLoader): The training dataloader.
         device (torch.device): The device to use for training (e.g., 'cuda' or 'cpu').
+        scaler (GradScaler): The GradScaler instance for mixed precision training.
 
     Returns:
         dict[str, float]: A dictionary containing the average losses for the epoch.
-                          The keys are the loss names (e.g., 'loss', 'loss_classifier', etc.)
-                          and the values are the corresponding average loss values.
+                         The keys are the loss names (e.g., 'loss', 'loss_classifier', etc.)
+                         and the values are the corresponding average loss values.
     """
     model.train()
     size = len(dataloader)
@@ -141,13 +145,14 @@ def train_one_epoch(
         key: 0 for key in LOSSES_NAMES
     }
 
-    for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Training batches", total=size):
+    for (images, targets) in tqdm(dataloader, desc="Training batches"):
         
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
-            
-        losses = model(images, targets)
-        loss = sum(loss for loss in losses.values())
+        
+        with torch.autocast(device_type=device.type, dtype=torch.float16): 
+            losses = model(images, targets)
+            loss = sum(loss for loss in losses.values())
         
         loss_values['loss'] += loss.item()
         for loss_name, value in losses.items():
@@ -158,8 +163,9 @@ def train_one_epoch(
             raise Exception("Loss is infinite")
 
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        scaler.scale(loss).backward()  # Scale the loss before backpropagation
+        scaler.step(optimizer)  
+        scaler.update()  
 
     for loss_name, value in loss_values.items():
         loss_values[loss_name] = value/size
@@ -185,16 +191,15 @@ def evaluate(
     Returns:
         dict[str, float]: A dictionary containing the evaluation statistics.
     """
-    size = len(dataloader)
     model.eval()
     dts = {}
 
-    for batch_num, (images, targets) in tqdm(enumerate(dataloader), desc="Evaluating batches", total=size):
+    for (images, targets) in tqdm(dataloader, desc="Evaluating batches"):
         
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
-
-        with torch.no_grad():
+        
+        with torch.no_grad(), torch.autocast(device_type=device.type, dtype=torch.float16):
             predictions = model(images)
             res = {
                 target["image_id"]: output
