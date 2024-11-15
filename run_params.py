@@ -32,16 +32,20 @@ def default_augmentation() -> dict:
         "vertical_flip": {
             "p": 0.5
         },
+        "scale_jitter": {
+            "target_size": (1024, 1024),
+            "scale_range": (0.8, 1.2)
+        },
         "perspective": {
-            "distortion_scale": 0.2,
+            "distortion_scale": 0.1,
             "p": 0.5
         },
         "rotation": {
-            "degrees": 15,
+            "degrees": 30,
             "expand": True
         },
         "color_jitter": {
-            "brightness": 0.2,
+            "brightness": 1,
             "contrast": 0.1,
             "saturation": 0.05
         }
@@ -175,6 +179,9 @@ def parse_params(params: RunParams, model:FasterRCNN, dataset: AleketDataset):
 
     if "vertical_flip" in params.augmentation:
         augmentation_list.append(v2.RandomHorizontalFlip(**params.augmentation["vertical_flip"]))
+        
+    if "scale_jitter" in params.augmentation:
+        augmentation_list.append(v2.ScaleJitter(**params.augmentation["scale_jitter"]))
 
     if "perspective" in params.augmentation:
         augmentation_list.append(v2.RandomPerspective(**params.augmentation["perspective"]))
