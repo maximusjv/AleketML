@@ -71,7 +71,7 @@ def train(model:FasterRCNN,
         print(f"Resuming from  {last_checkpoint_path}...")
         (model, optimizer, lr_scheduler,
         epoch_trained, scaler, loaded_stats_tracker) = load_checkpoint(model, last_checkpoint_path)
-        logger.best_val_metric = loaded_stats_tracker.best_val_metric[VALIDATION_METRICS[0]]
+        logger.best_val_metric = loaded_stats_tracker.best_val_metric[PRIMARY_VALIDATION_METRIC]
         stats_tracker.best_val_metric = loaded_stats_tracker.best_val_metric
         stats_tracker.train_loss_history = loaded_stats_tracker.train_loss_history
         stats_tracker.val_metrics_history = loaded_stats_tracker.val_metrics_history

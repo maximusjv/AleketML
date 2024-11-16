@@ -128,7 +128,7 @@ class StatsTracker:
         ax1.legend()
 
         ap_values = [
-            ep["AP@.50:.05:.95"] for ep in self.val_metrics_history
+            ep["AP@0.50:0.95"] for ep in self.val_metrics_history
         ]
         aad_values = [
             ep["AAD"] for ep in self.val_metrics_history
