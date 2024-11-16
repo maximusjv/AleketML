@@ -45,7 +45,7 @@ def default_augmentation() -> dict:
             "expand": True
         },
         "color_jitter": {
-            "brightness": 1,
+            "brightness": 0.1,
             "contrast": 0.1,
             "saturation": 0.05
         }
