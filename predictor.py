@@ -19,6 +19,7 @@ from torch.utils.data import Dataset, DataLoader, Subset
 from torchvision.models.detection import FasterRCNN
 import torchvision.transforms.v2.functional as F
 from torchvision.ops import batched_nms
+from tqdm import tqdm
 
 from aleket_dataset import AleketDataset, collate_fn
 from dataset_statisics import visualize_bboxes
@@ -169,7 +170,7 @@ class Predictor:
         
         result = {}
         
-        for (batched_patches, batched_images, batched_idxs) in dataloader:
+        for (batched_patches, batched_images, batched_idxs) in tqdm(dataloader, desc="Predicting"):
             for patches, imgs, idx in zip(batched_patches, batched_images, batched_idxs):
                 predictions = []
                 for b_imgs in torch.split(imgs, self.patches_per_batch):
