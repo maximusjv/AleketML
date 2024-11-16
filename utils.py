@@ -10,12 +10,12 @@ import matplotlib.pyplot as plt
 # PyTorch
 import torch
 from torch import GradScaler
-from torchvision.models.detection import FasterRCNN, fasterrcnn_resnet50_fpn, fasterrcnn_resnet50_fpn_v2
+from torchvision.models.detection import FasterRCNN, fasterrcnn_resnet50_fpn, fasterrcnn_resnet50_fpn_v2, fasterrcnn_mobilenet_v3_large_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torch.optim import SGD
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from metrics import VALIDATION_METRICS, LOSSES_NAMES
+from metrics import VALIDATION_METRICS, LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
 
 
 def make_patches(
@@ -93,8 +93,8 @@ class StatsTracker:
         is_best = False
         
         if (self.best_val_metric is None
-                or eval_coco_metrics["AP@.50:.05:.95"] > self.best_val_metric
-                ["AP@.50:.05:.95"]):
+                or eval_coco_metrics[PRIMARY_VALIDATION_METRIC] < self.best_val_metric
+                [PRIMARY_VALIDATION_METRIC]):
             is_best = True
             self.best_val_metric = eval_coco_metrics
 
@@ -130,11 +130,25 @@ class StatsTracker:
         ap_values = [
             ep["AP@.50:.05:.95"] for ep in self.val_metrics_history
         ]
+        aad_values = [
+            ep["AAD"] for ep in self.val_metrics_history
+        ]
+        acd_values = [
+            ep["ACD"] for ep in self.val_metrics_history
+        ]
+        
         ax2.plot(ap_values,
-                 label="Validation AP@.50:.05:.95",
+                 label="AP@0.50:0.95",
                  color="red")
-        ax2.set_xlabel("Epoch")
-        ax2.set_ylabel("AP@.50:.05:.95")
+        ax2.plot(aad_values,
+            label="AAD",
+            color="green")
+        ax2.plot(acd_values,
+            label="ACD",
+            color="orange")
+        
+        ax2.set_xlabel("Validation")
+        ax2.set_ylabel("Value")
         ax2.legend()
 
         if save_path:
@@ -183,15 +197,15 @@ class TrainingLogger:
                 print(f"\tValidation {metric_name}: {metric_value:.3f}")
 
             if (self.best_val_metric is None
-                    or eval_coco_metrics[VALIDATION_METRICS[0]] >
+                    or eval_coco_metrics[PRIMARY_VALIDATION_METRIC] <
                     self.best_val_metric):
-                self.best_val_metric = eval_coco_metrics[VALIDATION_METRICS[0]]
+                self.best_val_metric = eval_coco_metrics[PRIMARY_VALIDATION_METRIC]
                 print(
-                    f"\tNew Best Validation {VALIDATION_METRICS[0]}: {self.best_val_metric:.3f}"
+                    f"\tNew Best Validation {PRIMARY_VALIDATION_METRIC}: {self.best_val_metric:.3f}"
                 )
             else:
                 print(
-                    f"\tBest Validation {VALIDATION_METRICS[0]}: {self.best_val_metric:.3f}"
+                    f"\tBest Validation {PRIMARY_VALIDATION_METRIC}: {self.best_val_metric:.3f}"
                 )
 
 
@@ -228,9 +242,9 @@ def get_optimizer(model: FasterRCNN, params: dict = None) -> SGD:
 
 def get_lr_scheduler(optimizer: torch.optim.Optimizer, params: dict = None) -> ReduceLROnPlateau:
     if params:
-        return ReduceLROnPlateau(optimizer=optimizer, mode="max", **params)  
+        return ReduceLROnPlateau(optimizer=optimizer, mode="min", **params)  
     else:
-        return ReduceLROnPlateau(optimizer=optimizer, mode="max")
+        return ReduceLROnPlateau(optimizer=optimizer, mode="min")
     
 
 

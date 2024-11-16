@@ -16,7 +16,7 @@ import torchvision.models.detection as tv_detection
 from torchvision.models.detection import FasterRCNN
 
 from aleket_dataset import AleketDataset, create_dataloaders
-from metrics import LOSSES_NAMES, VALIDATION_METRICS, Evaluator
+from metrics import LOSSES_NAMES, PRIMARY_VALIDATION_METRIC, VALIDATION_METRICS, Evaluator
 from run_params import RunParams, parse_params
 from utils import StatsTracker, TrainingLogger, load_checkpoint, save_checkpoint
 
@@ -99,7 +99,7 @@ def train(model:FasterRCNN,
         is_best = stats_tracker.update_stats(losses, eval_stats)
         stats_tracker.plot_stats(validation_graph)
 
-        lr_scheduler.step(eval_stats[VALIDATION_METRICS[0]])
+        lr_scheduler.step(eval_stats[PRIMARY_VALIDATION_METRIC])
 
         epoch_trained = epoch
         if checkpoints:

@@ -12,12 +12,13 @@ from torchvision import ops
 from aleket_dataset import AleketDataset
 
 # METRICS NAMES
-VALIDATION_METRICS = ["AP@.50:.05:.95", "AP@.5", "AP@.75",
+VALIDATION_METRICS = ["AP@0.50:0.95", "AP@.5", "AP@.75",
                       "Recall@.50:.05:.95", "Recall@.5", "Recall@.75",
                       "ACD", "AAD"]
 
 LOSSES_NAMES = ["loss", "loss_classifier", "loss_box_reg", 'loss_objectness', 'loss_rpn_box_reg']
 
+PRIMARY_VALIDATION_METRIC = "AAD"
 
 def prepare_gts(dataset: AleketDataset, indices: list[int]) -> tuple[dict[tuple[int, int], np.ndarray], list, list]:
     """Prepares ground truth data for evaluation.
