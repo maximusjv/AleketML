@@ -93,8 +93,7 @@ class StatsTracker:
         is_best = False
         
         if (self.best_val_metric is None
-                or eval_coco_metrics[PRIMARY_VALIDATION_METRIC] < self.best_val_metric
-                [PRIMARY_VALIDATION_METRIC]):
+                or eval_coco_metrics[PRIMARY_VALIDATION_METRIC] < self.best_val_metric[PRIMARY_VALIDATION_METRIC]):
             is_best = True
             self.best_val_metric = eval_coco_metrics
 

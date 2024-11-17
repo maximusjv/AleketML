@@ -206,7 +206,7 @@ def area_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
 
     mean = (dt_area + gt_area) / 2.0
 
-    return abs(gt_area - dt_area) / mean if mean != 0 else 0
+    return (dt_area - gt_area) / mean if mean != 0 else 0
 
 
 def count_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
@@ -226,7 +226,7 @@ def count_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
     dt_count = len(dt)
 
     mean = (gt_count + dt_count) / 2.0
-    return abs(gt_count - dt_count) / mean if mean != 0 else 0
+    return (dt_count - gt_count) / mean if mean != 0 else 0
 
 
 class Evaluator:
@@ -280,8 +280,8 @@ class Evaluator:
                 CD[c, i] = count_relative_diff(gt, dt)
 
         return {
-            "AAD": AD.mean(),
-            "ACD": CD.mean()
+            "AD": AD,
+            "CD": CD
         }
 
     def _pr_eval_by_iou(self, dts: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]], iou_thrs: list):
@@ -420,8 +420,8 @@ class Evaluator:
         
         q_results = self._quantitative_eval(dts)
 
-        AAD = q_results["AAD"]
-        ACD = q_results["ACD"]
+        AD = q_results["AD"]
+        CD = q_results["CD"]
 
         self.eval_res = {
             "pr_curve": pr_curve,
@@ -431,5 +431,5 @@ class Evaluator:
 
         }
 
-        metrics = [mAP, AP50, AP75, AR, AR50, AR75, AAD, ACD]
+        metrics = [mAP, AP50, AP75, AR, AR50, AR75, np.absolute(AD).mean(), np.absolute(CD).mean()]
         return dict(zip(VALIDATION_METRICS,metrics))
