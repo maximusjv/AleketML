@@ -84,26 +84,31 @@ class Pacther(Dataset):
             prediction["boxes"][:, [0, 2]] += x1
             prediction["boxes"][:, [1, 3]] += y1
             if len(prediction["boxes"]) != 0:
-                boxes.append(prediction["boxes"])
-                labels.append(prediction["labels"])
-                scores.append(prediction["scores"])
+                boxes.extend(prediction["boxes"])
+                labels.extend(prediction["labels"])
+                scores.extend(prediction["scores"])
         
-          
-        labels = torch.cat(labels, dim=0)
-        boxes = torch.cat(boxes, dim=0)
-        scores = torch.cat(scores, dim=0)
+        if boxes:
+            labels = torch.stack(labels)
+            boxes = torch.stack(boxes)
+            scores = torch.stack(scores)
+            
+            boxes /= self.size_factor
+            keep = batched_nms(boxes, scores, labels, nms_thresh)
+            boxes = boxes[keep]
+            labels = labels[keep]
+            scores = scores[keep]
+
+            boxes = boxes[:max_detections]
+            scores = scores[:max_detections]
+            labels = labels[:max_detections]
+
+        else:
+            labels = torch.zeros(0, dtype=torch.int64)
+            boxes = torch.zeros((0,4), dtype=torch.float32)
+            scores = torch.zeros(0, dtype=torch.float32)
         
-        boxes /= self.size_factor
-        keep = batched_nms(boxes, scores, labels, nms_thresh)
-
-        boxes = boxes[keep]
-        labels = labels[keep]
-        scores = scores[keep]
-
-        boxes = boxes[:max_detections]
-        scores = scores[:max_detections]
-        labels = labels[:max_detections]
-
+       
         return {
             "boxes": boxes.cpu(),
             "scores": scores.cpu(),
@@ -216,7 +221,7 @@ class Predictor:
             area[class_name] = np.sum(
                 (bboxes_by_class[:, 2] - bboxes_by_class[:, 0]) / 2.0
                 * (bboxes_by_class[:, 3] - bboxes_by_class[:, 1]) / 2.0
-                ) * math.pi # area of eclipse inside the rectangle
+                ) * math.pi if len(bboxes_by_class) > 0 else 0
 
        
         return {

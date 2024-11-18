@@ -146,8 +146,8 @@ class StatsTracker:
             label="ACD",
             color="orange")
         
-        ax2.set_xlabel("Validation")
-        ax2.set_ylabel("Value")
+        ax2.set_xlabel("Epochs")
+        ax2.set_ylabel("Validation")
         ax2.legend()
 
         if save_path:
@@ -196,8 +196,7 @@ class TrainingLogger:
                 print(f"\tValidation {metric_name}: {metric_value:.3f}")
 
             if (self.best_val_metric is None
-                    or eval_coco_metrics[PRIMARY_VALIDATION_METRIC] <
-                    self.best_val_metric):
+                    or eval_coco_metrics[PRIMARY_VALIDATION_METRIC] < self.best_val_metric):
                 self.best_val_metric = eval_coco_metrics[PRIMARY_VALIDATION_METRIC]
                 print(
                     f"\tNew Best Validation {PRIMARY_VALIDATION_METRIC}: {self.best_val_metric:.3f}"
@@ -218,7 +217,7 @@ def get_model(device: torch.device, trainable_backbone_layers: int = 3) -> Faste
     Returns:
         FasterRCNN: The Faster R-CNN model with the modified classification head.
     """
-    model = fasterrcnn_resnet50_fpn_v2(
+    model = fasterrcnn_resnet50_fpn(
         weights = "DEFAULT",
         trainable_backbone_layers = trainable_backbone_layers
     )

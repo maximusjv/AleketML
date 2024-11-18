@@ -134,8 +134,12 @@ class AleketDataset(Dataset):
 
         ht, wt = img.shape[-2:]  # Get height and width
 
-        labels = torch.as_tensor(labels)
-        bboxes = tv_tensors.BoundingBoxes(bboxes, format="XYXY", canvas_size=(ht, wt))
+        labels = torch.as_tensor(labels, dtype=torch.int64)
+        if bboxes:
+            bboxes = tv_tensors.BoundingBoxes(bboxes, format="XYXY", canvas_size=(ht, wt))
+        else:
+            bboxes = torch.zeros((0, 4), dtype=torch.float32) 
+       
         
         if self.augmentation:
             img, bboxes, labels = self.augmentation(img, bboxes, labels)

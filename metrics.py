@@ -201,8 +201,8 @@ def area_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
     Returns:
         float: The area relative difference.
     """
-    gt_area = np.sum((gt[:, 2] - gt[:, 0]) * (gt[:, 3] - gt[:, 1])) if len(gt) != 0 else 0
-    dt_area = np.sum((dt[:, 2] - dt[:, 0]) * (dt[:, 3] - dt[:, 1])) if len(dt) != 0 else 0
+    gt_area = np.sum((gt[:, 2] - gt[:, 0]) * (gt[:, 3] - gt[:, 1]) if len(gt)>0 else 0) if len(gt) != 0 else 0
+    dt_area = np.sum((dt[:, 2] - dt[:, 0]) * (dt[:, 3] - dt[:, 1]) if len(dt)>0 else 0) if len(dt) != 0 else 0
 
     mean = (dt_area + gt_area) / 2.0
 

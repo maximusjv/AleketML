@@ -55,7 +55,7 @@ def count_analyze(dataset: AleketDataset,
         for target in dataset.get_annots(indices):
             boxes = torch.as_tensor(target["boxes"])
             labels = torch.as_tensor(target["labels"])
-            areas = ops.box_area(boxes)
+            areas = ops.box_area(boxes) if len(boxes) > 0 else 0
             uq_labels = torch.unique(labels).tolist()
             
             for label in uq_labels:
@@ -63,19 +63,20 @@ def count_analyze(dataset: AleketDataset,
                 by_class_count[label_name] = by_class_count.get(label_name, 0) + (labels == label).sum().item()
             
             count = len(labels)
-            ious = ops.box_iou(boxes, boxes).unsqueeze(0)
-            ious = ious[torch.where(ious <= 0.999)] # remove iou of same boxes
-            
-            count_inds = np.searchsorted(count_thrs, [count], side='left')[0]
-            by_img_count[count_inds] += 1
-        
-            areas_inds = np.searchsorted(area_thrs, areas.numpy(), side='left').tolist()
-            for i in areas_inds:
-                by_area[i] += 1
+            if len(boxes) > 0:
+                ious = ops.box_iou(boxes, boxes).unsqueeze(0)
+                ious = ious[torch.where(ious <= 0.999)] # remove iou of same boxes
                 
-            ious_inds = np.searchsorted(iou_thrs, ious.numpy(), side='left').tolist()
-            for i in ious_inds:
-                by_iou[i] += 1
+                count_inds = np.searchsorted(count_thrs, [count], side='left')[0]
+                by_img_count[count_inds] += 1
+            
+                areas_inds = np.searchsorted(area_thrs, areas.numpy(), side='left').tolist()
+                for i in areas_inds:
+                    by_area[i] += 1
+                    
+                ious_inds = np.searchsorted(iou_thrs, ious.numpy(), side='left').tolist()
+                for i in ious_inds:
+                    by_iou[i] += 1
 
                 
     by_iou //= 2
