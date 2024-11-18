@@ -57,8 +57,9 @@ def train(model:FasterRCNN,
     validation_graph = os.path.join(result_path, "validation_graph")
     validation_log = os.path.join(result_path, "validation_log.csv")
     
-    if not resume and os.path.exists(result_path): 
-        shutil.rmtree(result_path)
+    if not resume: 
+        os.makedirs(os.path.join(result_path, "checkpoints"), exist_ok=False)
+        
         
     epoch_trained = 0
     scaler = GradScaler()
@@ -75,8 +76,8 @@ def train(model:FasterRCNN,
         stats_tracker.best_val_metric = loaded_stats_tracker.best_val_metric
         stats_tracker.train_loss_history = loaded_stats_tracker.train_loss_history
         stats_tracker.val_metrics_history = loaded_stats_tracker.val_metrics_history
+        print(stats_tracker.train_loss_history[-1], stats_tracker.val_metrics_history[-1])
         
-    os.makedirs(os.path.join(result_path, "checkpoints"), exist_ok=True)
     params.save(params_path)
 
     while epoch_trained < total_epochs:

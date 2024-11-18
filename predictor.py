@@ -170,7 +170,7 @@ class Predictor:
         
         result = {}
         
-        for (batched_patches, batched_images, batched_idxs) in tqdm(dataloader, desc="Predicting"):
+        for (batched_patches, batched_images, batched_idxs) in dataloader:
             for patches, imgs, idx in zip(batched_patches, batched_images, batched_idxs):
                 predictions = []
                 for b_imgs in torch.split(imgs, self.patches_per_batch):
