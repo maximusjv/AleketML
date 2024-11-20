@@ -217,7 +217,7 @@ def get_model(device: torch.device, trainable_backbone_layers: int = 3) -> Faste
     Returns:
         FasterRCNN: The Faster R-CNN model with the modified classification head.
     """
-    model = fasterrcnn_resnet50_fpn(
+    model = fasterrcnn_resnet50_fpn_v2(
         weights = "DEFAULT",
         trainable_backbone_layers = trainable_backbone_layers
     )
