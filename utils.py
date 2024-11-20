@@ -10,8 +10,7 @@ import matplotlib.pyplot as plt
 # PyTorch
 import torch
 from torch import GradScaler
-from torchvision.models.detection import FasterRCNN, fasterrcnn_resnet50_fpn, fasterrcnn_resnet50_fpn_v2, fasterrcnn_mobilenet_v3_large_fpn
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection import FasterRCNN
 from torch.optim import SGD
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
@@ -205,29 +204,6 @@ class TrainingLogger:
                 print(
                     f"\tBest Validation {PRIMARY_VALIDATION_METRIC}: {self.best_val_metric:.3f}"
                 )
-
-
-def get_model(device: torch.device, trainable_backbone_layers: int = 3) -> FasterRCNN:
-    """
-    Loads a pretrained Faster R-CNN ResNet-50 FPN model and modifies the classification head 
-    to accommodate the specified number of classes in dataset (3 - including background).
-    Args:
-        device (torch.device): The device to move the model to (e.g., 'cuda' or 'cpu').
-
-    Returns:
-        FasterRCNN: The Faster R-CNN model with the modified classification head.
-    """
-    model = fasterrcnn_resnet50_fpn_v2(
-        weights = "DEFAULT",
-        trainable_backbone_layers = trainable_backbone_layers
-    )
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-    model.roi_heads.box_predictor = (
-        FastRCNNPredictor(
-            in_features, 3
-        )
-    )
-    return model.to(device)
 
 
 def get_optimizer(model: FasterRCNN, params: dict = None) -> SGD:

@@ -7,7 +7,7 @@ from typing import Any
 from torchvision.transforms import v2
 from torchvision.models.detection import FasterRCNN
 
-from aleket_dataset import AleketDataset, create_dataloaders
+from aleket_dataset import AleketDataset
 from utils import get_lr_scheduler, get_optimizer
 
 
@@ -161,11 +161,11 @@ def parse_params(params: RunParams, model:FasterRCNN, dataset: AleketDataset):
     for indices in params.validation_set.values():
         val_names.extend(indices)
 
-    train_dataloader, val_dataloader = create_dataloaders(dataset,
-                                                          train_names,
-                                                          val_names,
-                                                          params.batch_size,
-                                                          params.dataloader_workers)
+    train_dataloader, val_dataloader = dataset.create_dataloaders(
+                                                                train_names,
+                                                                val_names,
+                                                                params.batch_size,
+                                                                params.dataloader_workers)
 
     optimizer = get_optimizer(model, params.optimizer)
     lr_scheduler = get_lr_scheduler(optimizer, params.lr_scheduler)
