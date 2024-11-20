@@ -24,9 +24,36 @@ from tqdm import tqdm
 from aleket_dataset import AleketDataset, collate_fn
 from dataset_statisics import visualize_bboxes
 from metrics import Evaluator
-from utils import make_patches
 
-class Pacther(Dataset): 
+def make_patches(
+          width: int,
+          height: int,
+          patch_size: int,
+          overlap: float,
+):
+    overlap_size = int(patch_size * overlap)
+    no_overlap_size = patch_size - overlap_size
+
+    imgs_per_width = math.ceil(float(width) / no_overlap_size)
+    imgs_per_height = math.ceil(float(height) / no_overlap_size)
+
+    padded_height = imgs_per_width * no_overlap_size + overlap_size
+    padded_width = imgs_per_width * no_overlap_size + overlap_size
+
+    patch_boxes = []
+
+    for row in range(imgs_per_height):
+        for col in range(imgs_per_width):
+            xmin, ymin = col * no_overlap_size, row * no_overlap_size
+            xmax, ymax = xmin + patch_size, ymin + patch_size
+            patch_box = (xmin, ymin, xmax, ymax)
+
+            patch_boxes.append(patch_box)
+
+    return padded_width, padded_height, patch_boxes
+
+
+class Pacther(Dataset):
     def __init__(
         self,
         images: list[str | Image | torch.Tensor] | Dataset,
@@ -299,14 +326,3 @@ class Predictor:
                         image = F.to_pil_image(image)
 
                     visualize_bboxes(image, bboxes, labels, save_path=annotated_image_path)
-
-                        
-
-
-
-
-
-
-
-
-
