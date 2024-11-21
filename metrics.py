@@ -1,4 +1,3 @@
-import time
 # Third-party Libraries
 import numpy as np
 
@@ -6,27 +5,33 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-# Torchision
-from torchvision import ops
+from box_utils import match_gts_dts, box_area
 
-from aleket_dataset import AleketDataset
+# Torchision
 
 # METRICS NAMES
-VALIDATION_METRICS = ["AP@0.50:0.95", "AP@.5", "AP@.75",
-                      "Recall@.50:.05:.95", "Recall@.5", "Recall@.75",
-                      "ACD", "AAD"]
+VALIDATION_METRICS = ["AP", "Recall", "Precision", "F1", "ACD", "AAD"]
 
-LOSSES_NAMES = ["loss", "loss_classifier", "loss_box_reg", 'loss_objectness', 'loss_rpn_box_reg']
+LOSSES_NAMES = [
+    "loss",
+    "loss_classifier",
+    "loss_box_reg",
+    "loss_objectness",
+    "loss_rpn_box_reg",
+]
 
 PRIMARY_VALIDATION_METRIC = "AAD"
 
-def prepare_gts(dataset: AleketDataset, indices: list[int]) -> tuple[dict[tuple[int, int], np.ndarray], list, list]:
+
+def prepare_gts(
+    annots: list[dict],
+) -> tuple[dict[tuple[int, int], np.ndarray], list, list]:
     """Prepares ground truth data for evaluation.
 
     Extracts ground truth bounding boxes and labels from the dataset and organizes them by image and category.
 
     Args:
-        dataset (Dataset): The dataset containing images and ground truth annotations.
+
 
     Returns:
         tuple[dict, list, list]: A tuple containing:
@@ -37,11 +42,18 @@ def prepare_gts(dataset: AleketDataset, indices: list[int]) -> tuple[dict[tuple[
     gts = {}
     categories = set()
     image_ids = set()
-    annots = dataset.get_annots(indices)
     for target in annots:
         img_id = target["image_id"]
-        bbox = np.asarray(target["boxes"])
-        labels = np.asarray(target["labels"])
+        labels = (
+            target["labels"].numpy(force=True)
+            if isinstance(target["labels"], torch.Tensor)
+            else np.asarray(target["labels"])
+        )
+        bbox = (
+            target["boxes"].numpy(force=True)
+            if isinstance(target["boxes"], torch.Tensor)
+            else np.asarray(target["boxes"])
+        )
 
         image_ids.add(img_id)
         categories.update(labels.tolist())
@@ -54,14 +66,15 @@ def prepare_gts(dataset: AleketDataset, indices: list[int]) -> tuple[dict[tuple[
     return gts, sorted(image_ids), sorted(categories)
 
 
-def prepare_dts(predictions: dict[int, dict[str, torch.Tensor]]
-                ) -> dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]:
+def prepare_dts(
+    predictions: dict[int, dict[str, torch.Tensor]]
+) -> dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]:
     """Prepares detection results for evaluation.
 
     Organizes detection results by image and category, sorting them by confidence score.
 
     Args:
-        predictions (dict): A dictionary mapping image IDs to prediction dictionaries 
+        predictions (dict): A dictionary mapping image IDs to prediction dictionaries
                             containing 'boxes', 'scores', and 'labels'.
 
     Returns:
@@ -73,9 +86,21 @@ def prepare_dts(predictions: dict[int, dict[str, torch.Tensor]]
     categories = set()
 
     for img_id, preds in predictions.items():
-        labels = preds["labels"].cpu().numpy()
-        bbox = preds["boxes"].cpu().numpy()
-        scores = preds["scores"].cpu().numpy()
+        labels = (
+            preds["labels"].numpy(force=True)
+            if isinstance(preds["labels"], torch.Tensor)
+            else np.asarray(preds["labels"])
+        )
+        bbox = (
+            preds["boxes"].numpy(force=True)
+            if isinstance(preds["boxes"], torch.Tensor)
+            else np.asarray(preds["boxes"])
+        )
+        scores = (
+            preds["scores"].numpy(force=True)
+            if isinstance(preds["scores"], torch.Tensor)
+            else np.asarray(preds["scores"])
+        )
 
         categories.update(labels.tolist())
 
@@ -85,7 +110,9 @@ def prepare_dts(predictions: dict[int, dict[str, torch.Tensor]]
             bbox_filtered = bbox[ind]
             scores_filtered = scores[ind]
 
-            ind = np.argsort(-scores_filtered, kind="mergesort")  # sort detections by score
+            ind = np.argsort(
+                -scores_filtered, kind="mergesort"
+            )  # sort detections by score
 
             if len(bbox_filtered[ind]) != 0:
                 dts[img_id, cat] = bbox_filtered[ind], scores_filtered[ind]
@@ -93,71 +120,31 @@ def prepare_dts(predictions: dict[int, dict[str, torch.Tensor]]
     return dts
 
 
-def match_gts_dts(gts: np.ndarray,
-                  dts:  np.ndarray,
-                  iou_matrix: np.ndarray,
-                  iou_thresh: float) -> tuple[np.ndarray, np.ndarray]:
-    """Matches ground truth and detected objects based on IoU.
-
-    For each detected object, finds the best matching ground truth object 
-    based on IoU, considering an IoU threshold.
-
-    Args:
-        gts (np.ndarray): A NumPy array of ground truth bounding boxes.
-        dts (np.ndarray): A NumPy array of detected bounding boxes.
-        iou_matrix (np.ndarray): A NumPy array representing the IoU between 
-                                 each pair of ground truth and detected boxes.
-        iou_thresh (float): The IoU threshold for considering a match.
-
-    Returns:
-        tuple[np.ndarray, np.ndarray]: A tuple containing:
-            - A NumPy array of boolean values indicating which ground truth objects were matched.
-            - A NumPy array of boolean values indicating which detected objects were matched.
+def pr_eval(
+    gt_matches: np.ndarray,
+    dt_matches: np.ndarray,
+    dt_scores: np.ndarray,
+    recall_thrs: np.ndarray,
+):
     """
+    Calculates precision-recall curve and related metrics.
 
-    # assumes that predictions already sorted
-    dt_matches = np.zeros(len(dts))
-    gt_matches = np.zeros(len(gts))
-
-    for dind, _ in enumerate(dts):
-        iou = iou_thresh
-        match = -1
-        for gind, _ in enumerate(gts):
-            # if gt already matched
-            if gt_matches[gind] != 0:
-                continue
-            # continue to next gt unless better match made
-            if iou_matrix[dind, gind] < iou:
-                continue
-            # if match successful and best so far, store appropriately
-            iou = iou_matrix[dind, gind]
-            match = gind
-
-        if match != -1:
-            dt_matches[dind] = 1
-            gt_matches[match] = 1
-
-    return gt_matches, dt_matches
-
-
-def pr_eval(gt_matches: np.ndarray, dt_matches: np.ndarray, dt_scores: np.ndarray, recall_thrs: np.ndarray):
-    """Calculates precision-recall curve and related metrics.
-
-    Computes the precision-recall curve, precision, and recall for the given 
-    ground truth and detection matches.
+    This function computes the precision-recall curve, precision, recall, and F1 score
+    for the given ground truth and detection matches.
 
     Args:
-        gt_matches (np.ndarray): A NumPy array of boolean values indicating 
+        gt_matches (np.ndarray): A NumPy array of boolean values indicating
                                  which ground truth objects were matched.
-        dt_matches (np.ndarray): A NumPy array of boolean values indicating 
+        dt_matches (np.ndarray): A NumPy array of boolean values indicating
                                  which detected objects were matched.
         dt_scores (np.ndarray): A NumPy array of detection confidence scores.
         recall_thrs (np.ndarray): A NumPy array of recall thresholds.
 
     Returns:
         dict: A dictionary containing:
-            - 'recall': The final recall value.
-            - 'precision': The final precision value.
+            - 'R': The final recall value.
+            - 'P': The final precision value.
+            - 'F1': The F1 score.
             - 'pr_curve': The precision-recall curve as a NumPy array.
     """
     inds = np.argsort(-dt_scores, kind="mergesort")
@@ -175,101 +162,108 @@ def pr_eval(gt_matches: np.ndarray, dt_matches: np.ndarray, dt_scores: np.ndarra
         if pr[i] > pr[i - 1]:
             pr[i - 1] = pr[i]
 
-    inds = np.searchsorted(rc, recall_thrs, side='left')
+    inds = np.searchsorted(rc, recall_thrs, side="left")
     pr_curve = np.zeros(len(recall_thrs)).tolist()
 
     for ri, pi in enumerate(inds):
         pr_curve[ri] = pr[pi] if pi < len(pr) else 0
 
-    return {
-        "recall": rc[-1] if len(rc) > 0 else 0,
-        "precision": pr[-1] if len(pr) > 0 else 0,
-        "pr_curve": np.array(pr_curve),
-    }
+    R = rc[-1] if len(rc) > 0 else 0
+    P = pr[-1] if len(pr) > 0 else 0
+    F1 = 2 * P * R / (P + R) if P + R > 0 else 0
+    return {"R": R, "P": P, "F1": F1, "pr_curve": np.array(pr_curve)}
 
 
 def area_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
-    """Calculates the area relative difference between ground truth and detected boxes.
-
-    Computes the absolute difference between the total area of ground truth boxes 
-    and the total area of detected boxes, divided by the mean area.
+    """
+    Calculates the relative difference in area between ground truth and detected bounding boxes.
 
     Args:
         gt (np.ndarray): A NumPy array of ground truth bounding boxes.
         dt (np.ndarray): A NumPy array of detected bounding boxes.
 
     Returns:
-        float: The area relative difference.
+        float: The relative difference in area. A positive value indicates that the detected area
+               is larger than the ground truth area, while a negative value indicates the opposite.
+               Returns -2 if there are detections but no ground truth, and 0 if both are empty.
     """
-    gt_area = np.sum((gt[:, 2] - gt[:, 0]) * (gt[:, 3] - gt[:, 1]) if len(gt)>0 else 0) if len(gt) != 0 else 0
-    dt_area = np.sum((dt[:, 2] - dt[:, 0]) * (dt[:, 3] - dt[:, 1]) if len(dt)>0 else 0) if len(dt) != 0 else 0
+    gt_area = box_area(gt).sum()
+    dt_area = box_area(dt).sum()
 
-    mean = (dt_area + gt_area) / 2.0
-
-    return (dt_area - gt_area) / mean if mean != 0 else 0
+    return (dt_area - gt_area) / gt_area if gt_area != 0 else -2 if dt_area != 0 else 0
 
 
 def count_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
-    """Calculates the count relative difference between ground truth and detected boxes.
-
-    Computes the absolute difference between the number of ground truth boxes and 
-    the number of detected boxes, divided by the mean count.
+    """
+    Calculates the relative difference in count between ground truth and detected bounding boxes.
 
     Args:
         gt (np.ndarray): A NumPy array of ground truth bounding boxes.
         dt (np.ndarray): A NumPy array of detected bounding boxes.
 
     Returns:
-        float: The count relative difference.
+        float: The relative difference in count. A positive value indicates that there are more
+               detections than ground truths, while a negative value indicates the opposite.
+               Returns -2 if there are detections but no ground truth, and 0 if both are empty.
     """
     gt_count = len(gt)
     dt_count = len(dt)
 
-    mean = (gt_count + dt_count) / 2.0
-    return (dt_count - gt_count) / mean if mean != 0 else 0
+    return (
+        (dt_count - gt_count) / gt_count
+        if gt_count != 0
+        else -2 if dt_count != 0 else 0
+    )
 
 
 class Evaluator:
-    """
-    Evaluator class for calculating COCO-style metrics for object detection, 
-    including Average Precision (AP), Average Recall (AR), 
-    Average Count Difference (ACD), and Average Area Difference (AAD).
 
-    Args:
-        ds (Dataset): The dataset containing images and ground truth annotations.
-    """
+    def __init__(self, annots: list[dict]):
+        """
+        Initializes the Evaluator class with ground truth data, image IDs, and categories.
 
-    def __init__(self, ds: AleketDataset, indices: list[int]):
-        (self.gts,
-         self.images_id,
-         self.categories) = prepare_gts(ds, indices)
+        Parameters:
+        - ds (AleketDataset): The dataset containing images and ground truth annotations.
+        - indices (list[int]): A list of indices indicating which data samples to use for evaluation.
 
-        self.recall_thrs = np.linspace(.0, 1.00, 101)
-        self.iou_thrs = np.linspace(.50, 0.95, 10).tolist()
+        The function prepares ground truth data by calling the prepare_gts function. It initializes
+        recall thresholds, IOU threshold, and an empty dictionary for storing evaluation results.
+        """
+        (self.gts, self.images_id, self.categories) = prepare_gts(annots)
+
+        self.recall_thrs = np.linspace(0.0, 1.00, 101)
+        self.iou_thresh = 0.5
 
         self.eval_res = {}
 
-    def _quantitative_eval(self, dts: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]):
-        """Calculates Average Area Difference (AAD) and Average Count Difference (ACD).
+    def quantitative_eval(
+        self, dts: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]
+    ) -> dict[str, np.ndarray]:
+        """
+        Performs quantitative evaluation of detection results.
 
-        Computes the AAD and ACD between ground truth and detected objects across 
-        all categories and images.
+        This function calculates the Area Difference (AD) and Count Difference (CD)
+        between ground truth and detected bounding boxes for each category and image.
 
         Args:
-            dts (dict): A dictionary mapping (image_id, category_id) to a tuple of:
-                - A NumPy array of detected bounding boxes.
-                - A NumPy array of corresponding confidence scores.
+            dts (dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]): A dictionary
+                where keys are tuples of (image_id, category_id) and values are tuples
+                of (detected_boxes, scores). detected_boxes is a numpy array of shape
+                (n, 4) representing bounding boxes, and scores is a numpy array of
+                shape (n,) representing confidence scores.
 
         Returns:
-            dict: A dictionary containing:
-                - 'AAD': The Average Area Difference.
-                - 'ACD': The Average Count Difference.
+            dict[str, np.ndarray]: A dictionary containing:
+                - "AD": numpy array of shape (K, I) representing Area Difference,
+                        where K is the number of categories and I is the number of images.
+                - "CD": numpy array of shape (K, I) representing Count Difference,
+                        where K is the number of categories and I is the number of images.
         """
         I = len(self.images_id)
         K = len(self.categories)
 
-        AD = np.zeros((K, I))  # area difference over gt area
-        CD = np.zeros((K, I))  # count difference over gt count
+        AD = np.zeros((K, I))
+        CD = np.zeros((K, I))
 
         for c, cat in enumerate(self.categories):
             for i, image_id in enumerate(self.images_id):
@@ -279,157 +273,129 @@ class Evaluator:
                 AD[c, i] = area_relative_diff(gt, dt)
                 CD[c, i] = count_relative_diff(gt, dt)
 
-        return {
-            "AD": AD,
-            "CD": CD
-        }
+        return {"AD": AD, "CD": CD}
 
-    def _pr_eval_by_iou(self, dts: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]], iou_thrs: list):
-        """Calculates precision-recall curves and related metrics for different IoU thresholds.
+    def pr_eval(
+        self, dts: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]
+    ) -> dict[str, np.ndarray]:
+        """
+        Evaluates precision-recall metrics for object detection results.
 
-        Computes precision-recall curves, precision, and recall for each category and 
-        IoU threshold, enabling the calculation of Average Precision (AP).
+        This method calculates precision-recall curves, precision, recall, and F1 scores
+        for each category in the dataset based on the provided detection results.
 
         Args:
-            dts (dict): A dictionary mapping (image_id, category_id) to a tuple of:
-                - A NumPy array of detected bounding boxes.
-                - A NumPy array of corresponding confidence scores.
-            iou_thrs (list): A list of IoU thresholds for evaluation.
+            dts (dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]): A dictionary of detection results.
+                Keys are tuples of (image_id, category_id), and values are tuples of
+                (detected_boxes, confidence_scores).
 
         Returns:
-            dict: A dictionary containing:
-                - 'pr_curve': A NumPy array of shape (T, K, R) representing the 
-                              precision-recall curves for each IoU threshold (T), 
-                              category (K), and recall threshold (R).
-                - 'precision': A NumPy array of shape (T, K) representing the final 
-                               precision values for each IoU threshold and category.
-                - 'recall': A NumPy array of shape (T, K) representing the final 
-                            recall values for each IoU threshold and category.
+            dict[str, np.ndarray]: A dictionary containing the following evaluation results:
+                - 'pr_curve': Precision-recall curves for each category (shape: [K, R])
+                - 'precision': Precision values for each category (shape: [K,])
+                - 'recall': Recall values for each category (shape: [K,])
+                - 'F1': F1 scores for each category (shape: [K,])
+            where K is the number of categories and R is the number of recall thresholds.
         """
-        T = len(iou_thrs)
         K = len(self.categories)
         R = len(self.recall_thrs)
 
-        pr_curve = np.zeros((T, K, R))
-        precision = np.zeros((T, K, ))
-        recall = np.zeros((T, K, ))
+        pr_curve = np.zeros((K, R))
+        precision = np.zeros((K,))
+        recall = np.zeros((K,))
+        F1 = np.zeros((K,))
 
-        for t, iou_thresh in enumerate(iou_thrs):
-            for c, cat in enumerate(self.categories):
-                gt_matches = []
-                dt_matches = []
-                dt_scores = []
+        for c, cat in enumerate(self.categories):
+            gt_matches = []
+            dt_matches = []
+            dt_scores = []
 
-                for image_id in self.images_id:
+            for image_id in self.images_id:
 
-                    gt = self.gts.get((image_id, cat), np.empty((0,4)))
-                    dt, score = dts.get((image_id, cat), (np.empty((0,4)), np.empty(0)))
+                gt = self.gts.get((image_id, cat), np.empty((0, 4)))
+                dt, score = dts.get((image_id, cat), (np.empty((0, 4)), np.empty(0)))
 
-                    if len(dt) == 0 and len(gt) == 0:
-                        continue
-                    
-                    gt_match, dt_match = np.zeros(len(gt)), np.zeros(len(dt))
-                    if len(gt) != 0 and len(dt) != 0:
-                        # Compute IoU
-                        iou_matrix = ops.box_iou(
-                            torch.as_tensor(dt),
-                            torch.as_tensor(gt)).numpy()
-                        gt_match, dt_match = match_gts_dts(gt, dt, iou_matrix, iou_thresh)
-
-                    gt_matches.extend(gt_match)
-                    dt_matches.extend(dt_match)
-                    dt_scores.extend(score)
-
-                if not gt_matches:
+                if len(dt) == 0 and len(gt) == 0:
                     continue
 
-                gt_matches = np.array(gt_matches)
-                dt_matches = np.array(dt_matches)
-                dt_scores = np.array(dt_scores)
+                gt_match, dt_match = np.zeros(len(gt)), np.zeros(len(dt))
+                if len(gt) != 0 and len(dt) != 0:
+                    gt_match, dt_match = match_gts_dts(gt, dt, self.iou_thresh)
 
-                pr_res = pr_eval(gt_matches, dt_matches, dt_scores, self.recall_thrs)
-                pr_curve[t, c] = pr_res["pr_curve"]
-                precision[t, c] = pr_res["precision"]
-                recall[t, c] = pr_res["recall"]
+                gt_matches.extend(gt_match)
+                dt_matches.extend(dt_match)
+                dt_scores.extend(score)
+
+            gt_matches = np.array(gt_matches)
+            dt_matches = np.array(dt_matches)
+            dt_scores = np.array(dt_scores)
+
+            pr_res = pr_eval(gt_matches, dt_matches, dt_scores, self.recall_thrs)
+            pr_curve[c] = pr_res["pr_curve"]
+            precision[c] = pr_res["P"]
+            recall[c] = pr_res["R"]
+            F1[c] = pr_res["F1"]
 
         return {
             "pr_curve": pr_curve,
             "precision": precision,
             "recall": recall,
+            "F1": F1,
         }
 
-
-    def eval(self, dts: dict[int, dict[str, torch.Tensor]]):
+    def eval(self, dts: dict[int, dict[str, torch.Tensor]]) -> dict:
         """
-        Evaluates the detection results and calculates COCO metrics.
+        Evaluates the detection results and calculates various metrics.
 
-        Computes Average Precision (AP), Average Recall (AR), Average Count Difference (ACD), 
-        and Average Area Difference (AAD) based on the provided detection results.
+        This function processes the detection results, computes precision-recall metrics,
+        and calculates quantitative metrics such as Average Precision (AP), Recall, Precision,
+        F1 score, Average Count Difference (ACD), and Average Area Difference (AAD).
 
         Args:
-            dts (dict): A dictionary mapping image IDs to prediction dictionaries 
-                        containing 'boxes', 'scores', and 'labels'.
+            dts (dict[int, dict[str, torch.Tensor]]): A dictionary mapping image IDs to prediction
+                dictionaries. Each prediction dictionary contains 'boxes', 'scores', and 'labels'
+                as torch.Tensor objects.
 
         Returns:
-            dict: A dictionary mapping metric names to their calculated values.
+            dict: A dictionary mapping metric names to their calculated values. The metrics include:
+                - AP (Average Precision)
+                - Recall
+                - Precision
+                - F1 score
+                - ACD (Average Count Difference)
+                - AAD (Average Area Difference)
+
+        Note:
+            This method also updates the `eval_res` attribute of the class with detailed evaluation results.
         """
         dts = prepare_dts(dts)
-        pr_res = self._pr_eval_by_iou(dts, iou_thrs=self.iou_thrs)
+        pr_res = self.pr_eval(dts)
 
         pr_curve = pr_res["pr_curve"]
         precision = pr_res["precision"]
         recall = pr_res["recall"]
+        F1 = pr_res["F1"]
 
-        # Compute AP
-        mAP = -1
-        AP50 = -1    
-        AP75 = -1
-        AR = -1
-        AR50 = -1
-        AR75 = -1
-           
-        pr = pr_curve[pr_curve > -1]
-        if len(pr) > 0:
-            mAP = np.mean(pr)
-            
-        pr = pr_curve[0, :, :]
-        pr = pr[pr > -1]
-        if len(pr) > 0:
-            AP50 = np.mean(pr)
-            
-        pr = pr_curve[5, :, :]
-        pr = pr[pr > -1]
-        if len(pr) > 0:
-            AP75 = np.mean(pr)
-            
-
-        # Compute AR
-        r = recall[recall > -1]
-        if len(pr) > 0:
-            AR = np.mean(r)
-           
-        r = recall[0, :]
-        r = r[r > -1]
-        if len(r) > 0:
-            AR50 = np.mean(r)
-        
-        r = recall[5, :]
-        r = r[r > -1]
-        if len(r) > 0:
-            AR75 = np.mean(r)
-        
-        q_results = self._quantitative_eval(dts)
+        q_results = self.quantitative_eval(dts)
 
         AD = q_results["AD"]
         CD = q_results["CD"]
+
+        AP = np.mean(pr_curve)
+        R = np.mean(recall)
+        P = np.mean(precision)
+        F1 = np.mean(F1)
 
         self.eval_res = {
             "pr_curve": pr_curve,
             "recall": recall,
             "precision": precision,
+            "F1": F1,
             "quatitative_results": q_results,
-
         }
 
-        metrics = [mAP, AP50, AP75, AR, AR50, AR75, np.absolute(AD).mean(), np.absolute(CD).mean()]
-        return dict(zip(VALIDATION_METRICS,metrics))
+        AD = AD[AD != -2]
+        CD = CD[CD != -2]
+
+        metrics = [AP, R, P, F1, np.abs(AD).mean(), np.abs(CD).mean()]
+        return dict(zip(VALIDATION_METRICS, metrics))

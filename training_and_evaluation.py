@@ -59,7 +59,7 @@ def train(model: FasterRCNN,
     epoch_trained = 0
     scaler = GradScaler()
     dataset.augmentation = None
-    evaluator = Evaluator(dataset, val_dataloader.dataset.indices)
+    evaluator = Evaluator(dataset.get_annots(val_dataloader.dataset.indices))
     stats_tracker = StatsTracker(validation_log)
     logger = TrainingLogger()
 

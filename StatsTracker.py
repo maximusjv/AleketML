@@ -88,7 +88,7 @@ class StatsTracker:
         ax1.legend()
 
         ap_values = [
-            ep["AP@0.50:0.95"] for ep in self.val_metrics_history
+            ep["AP"] for ep in self.val_metrics_history
         ]
         aad_values = [
             ep["AAD"] for ep in self.val_metrics_history
@@ -98,7 +98,7 @@ class StatsTracker:
         ]
 
         ax2.plot(ap_values,
-                 label="AP@0.50:0.95",
+                 label="AP",
                  color="red")
         ax2.plot(aad_values,
             label="AAD",
