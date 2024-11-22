@@ -3,11 +3,8 @@ import numpy as np
 
 # PyTorch
 import torch
-from torch.utils.data import Dataset
 
 from box_utils import match_gts_dts, box_area
-
-# Torchision
 
 # METRICS NAMES
 VALIDATION_METRICS = ["AP", "Recall", "Precision", "F1", "ACD", "AAD"]
