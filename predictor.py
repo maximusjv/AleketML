@@ -246,9 +246,6 @@ class Predictor:
     ):
 
         self.device = device
-        self.classes = list(AleketDataset.NUM_TO_CLASSES.values())[
-            1:
-        ]  # remove background class
         self.model = model.to(device)
         self.images_per_batch = images_per_batch
         self.image_size_factor = image_size_factor
