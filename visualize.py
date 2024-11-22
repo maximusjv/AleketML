@@ -59,8 +59,8 @@ def draw_heat_map(
     Y = len(y_ticks)
 
     ax.set_title(name)
-    ax.set_xlabel("Score Threshold")
-    ax.set_ylabel("Iou Threshold")
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
     ax.set_xticks(np.arange(X))
     ax.set_yticks(np.arange(Y))
     ax.set_xticklabels(x_ticks)
