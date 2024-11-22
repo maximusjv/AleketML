@@ -2,10 +2,7 @@ import csv
 import os
 from typing import Optional
 
-from matplotlib import pyplot as plt
-
-from metrics import VALIDATION_METRICS, LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
-
+from consts import VALIDATION_METRICS, LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
 
 class StatsTracker:
     """
@@ -66,6 +63,7 @@ class StatsTracker:
         return is_best
 
     def plot_stats(self, save_path: str) -> None:
+        from matplotlib import pyplot as plt
         """
         Plots the training loss and validation AP@.50:.05:.95 over epochs.
 

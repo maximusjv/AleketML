@@ -3,8 +3,8 @@ import os
 from typing import Optional
 
 import numpy as np
-from aleket_dataset import AleketDataset
 from box_utils import box_area, box_iou
+from consts import NUM_TO_CLASSES
 
 
 def count_analyze(
@@ -47,7 +47,7 @@ def count_analyze(
         uq_labels = np.unique(labels).tolist()
 
         for label in uq_labels:
-            label_name = AleketDataset.NUM_TO_CLASSES[label]
+            label_name = NUM_TO_CLASSES[label]
             by_class_count[label_name] = (
                 by_class_count.get(label_name, 0) + (labels == label).sum().item()
             )

@@ -6,17 +6,20 @@ from typing import Optional
 
 # Third-party Libraries
 import PIL.Image
-import gdown
 import numpy as np
+
 # PyTorch
 import torch
 import torchvision.transforms.v2 as v2
 import torchvision.tv_tensors as tv_tensors
 from torch.utils.data import Dataset, DataLoader, Subset
 
+from consts import collate_fn
+
 
 # Downloads and extracts the dataset if it doesn't exist locally.
 def download_dataset(save_dir: str, patched_dataset_gdrive_id: str = ""):
+    import gdown
     """Downloads and extracts the dataset if it doesn't exist locally.
 
     Args:
@@ -35,20 +38,6 @@ def download_dataset(save_dir: str, patched_dataset_gdrive_id: str = ""):
 
 # Aleket Dataset
 class AleketDataset(Dataset):
-    """Custom dataset for Aleket images and annotations.
-
-    Args:
-        dataset_dir: Directory containing the 'imgs' folder and 'dataset.json'.
-        img_size: Size to resize the image to.
-        augmentation: Optional torchvision transforms to apply to the data.
-
-    Attributes:
-        NUM_TO_CLASSES: Mapping of numerical labels to class names.
-        CLASSES_TO_NUM: Mapping of class names to numerical labels.
-    """
-
-    CLASSES_TO_NUM = {"background": 0, "healthy": 1, "necrosed": 2}
-    NUM_TO_CLASSES = {0: "background", 1: "healthy", 2: "necrosed"}
 
     def __init__(
             self,
@@ -231,8 +220,3 @@ class AleketDataset(Dataset):
         )
 
         return train_dataloader, val_dataloader
-
-
-def collate_fn(batch):
-    """Collates data samples into batches for the dataloader."""
-    return tuple(zip(*batch))

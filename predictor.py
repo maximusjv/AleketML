@@ -1,22 +1,15 @@
-# Standard Library
-import math
-from typing import Optional
-
 # Third-party Libraries
-import PIL
 import numpy as np
 
 # PyTorch
 import torch
-import torchvision.transforms.v2.functional as F
 from PIL.Image import Image
-from torch import Tensor
 from torch.utils.data import Dataset, DataLoader
 from torchvision.models.detection import FasterRCNN
 import torchvision.ops as ops
 
-from aleket_dataset import collate_fn
 from box_utils import box_area, box_iou
+from consts import collate_fn
 from patcher import Patcher
 
 def merge_detections(

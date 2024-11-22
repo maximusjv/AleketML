@@ -14,8 +14,8 @@ from StatsTracker import StatsTracker
 from TrainingLogger import TrainingLogger
 from aleket_dataset import AleketDataset
 from checkpoints import RunParams, save_checkpoint, load_checkpoint
-from metrics import LOSSES_NAMES, PRIMARY_VALIDATION_METRIC, Evaluator
-
+from consts import LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
+from metrics import Evaluator
 
 def train(model: FasterRCNN,
           dataset: AleketDataset,

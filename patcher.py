@@ -1,6 +1,5 @@
 # Standard Library
 import math
-from typing import Optional
 
 # Third-party Libraries
 import PIL
@@ -65,7 +64,7 @@ def make_patches(
 class Patcher(Dataset):
     def __init__(
         self,
-        images: list[str | Image | torch.Tensor] | Dataset,
+        images: list[str | Image | Tensor] | Dataset,
         size_factor: float,
         patch_size: int,
         patch_overlap: float,
@@ -90,7 +89,7 @@ class Patcher(Dataset):
 
     @torch.no_grad()
     def preprocess(
-        self, image: Image | torch.Tensor | str, idx: int
+        self, image: Image | Tensor | str, idx: int
     ) -> tuple[list[tuple[int, int, int, int]], Tensor, int]:
         """
         Preprocess an input image by resizing, padding, and splitting it into patches.

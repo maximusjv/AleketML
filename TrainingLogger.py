@@ -1,7 +1,6 @@
 import time
 from datetime import timedelta
-from metrics import LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
-
+from consts import LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
 
 class TrainingLogger:
     """Logs training progress, including epoch time, training losses, and validation metrics."""

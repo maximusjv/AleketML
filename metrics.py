@@ -2,23 +2,9 @@
 import numpy as np
 
 # PyTorch
-import torch
-
+from torch import Tensor
 from box_utils import match_gts_dts, box_area
-
-# METRICS NAMES
-VALIDATION_METRICS = ["AP", "Recall", "Precision", "F1", "ACD", "AAD"]
-
-LOSSES_NAMES = [
-    "loss",
-    "loss_classifier",
-    "loss_box_reg",
-    "loss_objectness",
-    "loss_rpn_box_reg",
-]
-
-PRIMARY_VALIDATION_METRIC = "AAD"
-
+from consts import VALIDATION_METRICS
 
 def prepare_gts(
     annots: list[dict],
@@ -43,12 +29,12 @@ def prepare_gts(
         img_id = target["image_id"]
         labels = (
             target["labels"].numpy(force=True)
-            if isinstance(target["labels"], torch.Tensor)
+            if isinstance(target["labels"], Tensor)
             else np.asarray(target["labels"])
         )
         bbox = (
             target["boxes"].numpy(force=True)
-            if isinstance(target["boxes"], torch.Tensor)
+            if isinstance(target["boxes"], Tensor)
             else np.asarray(target["boxes"])
         )
 
@@ -64,7 +50,7 @@ def prepare_gts(
 
 
 def prepare_dts(
-    predictions: dict[int, dict[str, torch.Tensor]]
+    predictions: dict[int, dict[str, Tensor]]
 ) -> dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]:
     """Prepares detection results for evaluation.
 
@@ -85,17 +71,17 @@ def prepare_dts(
     for img_id, preds in predictions.items():
         labels = (
             preds["labels"].numpy(force=True)
-            if isinstance(preds["labels"], torch.Tensor)
+            if isinstance(preds["labels"], Tensor)
             else np.asarray(preds["labels"])
         )
         bbox = (
             preds["boxes"].numpy(force=True)
-            if isinstance(preds["boxes"], torch.Tensor)
+            if isinstance(preds["boxes"], Tensor)
             else np.asarray(preds["boxes"])
         )
         scores = (
             preds["scores"].numpy(force=True)
-            if isinstance(preds["scores"], torch.Tensor)
+            if isinstance(preds["scores"], Tensor)
             else np.asarray(preds["scores"])
         )
 
@@ -335,7 +321,7 @@ class Evaluator:
             "F1": F1,
         }
 
-    def eval(self, dts: dict[int, dict[str, torch.Tensor]]) -> dict:
+    def eval(self, dts: dict[int, dict[str, Tensor]]) -> dict:
         """
         Evaluates the detection results and calculates various metrics.
 

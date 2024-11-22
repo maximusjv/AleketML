@@ -1,17 +1,11 @@
 # Standard Libraries
 from typing import Optional
-
-import PIL
 import numpy as np
 
 from PIL import Image, ImageDraw, ImageFont
 from typing import Optional
 # Pytorch
-
-from matplotlib import patches, pyplot as plt
 from matplotlib.axes import Axes
-
-
 
 def visualize_bboxes(img: Image.Image,
                     bboxes: list[list[int]],
@@ -34,7 +28,7 @@ def visualize_bboxes(img: Image.Image,
 
     class_colors = {
         'healthy': 'green',
-        'not healthy': 'red'
+        'necrosed': 'red'
     }
 
     draw = ImageDraw.Draw(img)
