@@ -11,42 +11,13 @@ import torch
 import torchvision.transforms.v2.functional as F
 from PIL.Image import Image
 from torch import Tensor
-from torch.utils.data import Dataset, DataLoader, Subset
+from torch.utils.data import Dataset, DataLoader
 from torchvision.models.detection import FasterRCNN
 import torchvision.ops as ops
 
-from aleket_dataset import AleketDataset, collate_fn
+from aleket_dataset import collate_fn
 from box_utils import box_area, box_iou
-from metrics import Evaluator
-
-
-def make_patches(
-    width: int,
-    height: int,
-    patch_size: int,
-    overlap: float,
-) -> tuple[int, int, list[tuple[int, int, int, int]]]:
-    overlap_size = int(patch_size * overlap)
-    no_overlap_size = patch_size - overlap_size
-
-    imgs_per_width = math.ceil(float(width) / no_overlap_size)
-    imgs_per_height = math.ceil(float(height) / no_overlap_size)
-
-    padded_height = imgs_per_width * no_overlap_size + overlap_size
-    padded_width = imgs_per_width * no_overlap_size + overlap_size
-
-    patch_boxes = []
-
-    for row in range(imgs_per_height):
-        for col in range(imgs_per_width):
-            xmin, ymin = col * no_overlap_size, row * no_overlap_size
-            xmax, ymax = xmin + patch_size, ymin + patch_size
-            patch_box = (xmin, ymin, xmax, ymax)
-
-            patch_boxes.append(patch_box)
-
-    return padded_width, padded_height, patch_boxes
-
+from patcher import Patcher
 
 def merge_detections(
     boxes: np.ndarray, scores: np.ndarray, labels: np.ndarray, iou_threshold: float
@@ -113,122 +84,64 @@ def merge_detections(
     return np.array(merged_boxes), np.array(merged_scores), np.array(merged_labels)
 
 
-class Patcher(Dataset):
-    def __init__(
-        self,
-        images: list[str | Image | torch.Tensor] | Dataset,
-        size_factor: float,
-        patch_size: int,
-        patch_overlap: float,
-    ):
-        self.images = images
-        self.size_factor = size_factor
-        self.patch_size = patch_size
-        self.patch_overlap = patch_overlap
+@torch.no_grad()
+def postprocess(
+    size_factor: float,
+    patches: list[list[int]],
+    predictions: list[dict[str, torch.Tensor]],
+    post_postproces_detections: int,
+    iou_thresh: float,
+    use_merge: bool = True,
+) -> dict[str, np.ndarray]:
 
-    @torch.no_grad()
-    def preprocess(
-        self, image: Image | torch.Tensor | str, idx: int
-    ) -> tuple[list[tuple[int, int, int, int]], Tensor, int]:
-        if isinstance(image, str):
-            image = PIL.Image.open(image)
+    boxes = []
+    labels = []
+    scores = []
 
-        if isinstance(image, Image):
-            image = F.to_image(image)
+    for prediction, patch in zip(predictions, patches):
+        x1, y1, _, _ = patch
+        prediction["boxes"][:, [0, 2]] += x1
+        prediction["boxes"][:, [1, 3]] += y1
+        if len(prediction["boxes"]) != 0:
+            boxes.extend(prediction["boxes"].numpy(force=True))
+            labels.extend(prediction["labels"].numpy(force=True))
+            scores.extend(prediction["scores"].numpy(force=True))
 
-        ht, wd = image.shape[-2:]
-        ht = int(ht * self.size_factor)
-        wd = int(wd * self.size_factor)
+    if boxes:
+        labels = np.stack(labels)
+        boxes = np.stack(boxes)
+        scores = np.stack(scores)
 
-        padded_width, padded_height, patches = make_patches(
-            wd, ht, self.patch_size, self.patch_overlap
-        )
-
-        image = F.resize(image, size=[ht, wd])
-        image = F.pad(
-            image, padding=[0, 0, padded_width - wd, padded_height - ht], fill=0.0
-        )
-        image = F.to_dtype(image, dtype=torch.float32, scale=True)
-
-        patched_images = torch.stack(
-            [F.crop(image, y1, x1, y2 - y1, x2 - x1) for (x1, y1, x2, y2) in patches]
-        )
-
-        return patches, patched_images, idx
-
-    def __len__(self):
-        """Returns the total number of images in the dataset."""
-        return len(self.images)
-
-    @torch.no_grad()
-    def postprocess(
-        self,
-        patches: list[list[int]],
-        predictions: list[dict[str, torch.Tensor]],
-        post_postproces_detections: int,
-        iou_thresh: float,
-        use_merge: bool = True,
-    ) -> dict[str, np.ndarray]:
-
-        boxes = []
-        labels = []
-        scores = []
-
-        for prediction, patch in zip(predictions, patches):
-            x1, y1, _, _ = patch
-            prediction["boxes"][:, [0, 2]] += x1
-            prediction["boxes"][:, [1, 3]] += y1
-            if len(prediction["boxes"]) != 0:
-                boxes.extend(prediction["boxes"].numpy(force=True))
-                labels.extend(prediction["labels"].numpy(force=True))
-                scores.extend(prediction["scores"].numpy(force=True))
-
-        if boxes:
-            labels = np.stack(labels)
-            boxes = np.stack(boxes)
-            scores = np.stack(scores)
-
-            boxes /= self.size_factor
-            if use_merge:
-                boxes, scores, labels = merge_detections(
-                    boxes, scores, labels, iou_thresh
-                )
-            else:
-                keep = ops.batched_nms(
-                    torch.as_tensor(boxes),
-                    torch.as_tensor(scores),
-                    torch.as_tensor(labels),
-                    iou_thresh,
-                ).numpy(force=True)
-                boxes = boxes[keep]
-                scores = scores[keep]
-                labels = labels[keep]
-
-            boxes = boxes[:post_postproces_detections]
-            scores = scores[:post_postproces_detections]
-            labels = labels[:post_postproces_detections]
-
+        boxes /= size_factor
+        if use_merge:
+            boxes, scores, labels = merge_detections(
+                boxes, scores, labels, iou_thresh
+            )
         else:
-            labels = np.zeros(0, dtype=np.int64)
-            boxes = np.zeros((0, 4), dtype=np.float32)
-            scores = np.zeros(0, dtype=np.float32)
+            keep = ops.batched_nms(
+                torch.as_tensor(boxes),
+                torch.as_tensor(scores),
+                torch.as_tensor(labels),
+                iou_thresh,
+            ).numpy(force=True)
+            boxes = boxes[keep]
+            scores = scores[keep]
+            labels = labels[keep]
 
-        return {
-            "boxes": boxes,
-            "scores": scores,
-            "labels": labels,
-        }
+        boxes = boxes[:post_postproces_detections]
+        scores = scores[:post_postproces_detections]
+        labels = labels[:post_postproces_detections]
 
-    @torch.no_grad()
-    def __getitem__(
-        self, idx: int
-    ) -> tuple[list[tuple[int, int, int, int]], Tensor, int]:
-        if isinstance(self.images, Dataset):
-            image, target = self.images[idx]
-            return self.preprocess(image, target["image_id"])
-        r = self.preprocess(self.images[idx], idx)
+    else:
+        labels = np.zeros(0, dtype=np.int64)
+        boxes = np.zeros((0, 4), dtype=np.float32)
+        scores = np.zeros(0, dtype=np.float32)
 
-        return r
+    return {
+        "boxes": boxes,
+        "scores": scores,
+        "labels": labels,
+    }
 
 
 class Predictor:
@@ -244,7 +157,26 @@ class Predictor:
         patch_size: int = 1024,
         patch_overlap: float = 0.2,
     ):
+        """
+        Initialize the Predictor class.
 
+        This class is designed to handle object detection predictions using a FasterRCNN model,
+        with support for image patching and batch processing.
+
+        Args:
+            model (FasterRCNN): The FasterRCNN model to be used for predictions.
+            device (torch.device): The device (CPU/GPU) on which to run the model.
+            images_per_batch (int, optional): Number of images to process in each batch. Defaults to 4.
+            image_size_factor (float, optional): Factor to resize input images. Defaults to 1.
+            detections_per_image (int, optional): Maximum number of detections to return per image. Defaults to 300.
+            detections_per_patch (int, optional): Maximum number of detections to return per image patch. Defaults to 100.
+            patches_per_batch (int, optional): Number of patches to process in each batch. Defaults to 4.
+            patch_size (int, optional): Size of each image patch. Defaults to 1024.
+            patch_overlap (float, optional): Overlap between adjacent patches. Defaults to 0.2.
+
+        Returns:
+            None
+        """
         self.device = device
         self.model = model.to(device)
         self.images_per_batch = images_per_batch
@@ -256,6 +188,7 @@ class Predictor:
         self.detections_per_patch = detections_per_patch
         self.patches_per_batch = patches_per_batch
 
+
     @torch.no_grad()
     def get_predictions(
         self,
@@ -264,7 +197,25 @@ class Predictor:
         score_thresh: float,
         use_merge: bool = True,
     ) -> dict[int, dict[str, np.array]]:
+        """
+        Generate predictions for a set of images using the model.
 
+        This method processes the input images, applies the model to detect objects,
+        and post-processes the results.
+
+        Args:
+            images (list[Image | torch.Tensor | str] | Dataset): The input images to process.
+                Can be a list of PIL Images, torch Tensors, file paths, or a Dataset.
+            iou_thresh (float): The Intersection over Union threshold for merging
+                or filtering overlapping detections.
+            score_thresh (float): The confidence score threshold for filtering detections.
+            use_merge (bool, optional): If True, merge overlapping detections.
+                If False, use Non-Maximum Suppression. Defaults to True.
+
+        Returns:
+            dict[int, dict[str, np.array]]: A dictionary where keys are image indices and
+            values are dictionaries containing 'boxes', 'scores', and 'labels' as numpy arrays.
+        """
         self.model.roi_heads.score_thresh = score_thresh
         self.model.roi_heads.nms_thresh = 1 if use_merge else iou_thresh
         self.model.roi_heads.detections_per_img = self.detections_per_patch
@@ -293,7 +244,8 @@ class Predictor:
                         device_type=self.device.type, dtype=torch.float16
                     ):
                         predictions.extend(self.model(b_imgs))
-                predictions = patcher.postprocess(
+                predictions = postprocess(
+                    self.image_size_factor,
                     patches,
                     predictions,
                     self.per_image_detections,
@@ -305,20 +257,4 @@ class Predictor:
         del patcher
         del dataloader
         return result
-
-    @torch.no_grad()
-    def eval_dataset(
-        self,
-        dataset: AleketDataset,
-        indices: list[int | str],
-        iou_thresh: float,
-        score_thresh: float,
-        evaluator: Optional[Evaluator] = None,
-        use_merge: bool = True,
-    ) -> dict[str, float]:
-        if not evaluator:
-            evaluator = Evaluator(dataset.get_annots(indices))
-        subset = Subset(dataset, indices)
-        predictions = self.get_predictions(subset, iou_thresh, score_thresh, use_merge)
-        return evaluator.eval(predictions)
 
