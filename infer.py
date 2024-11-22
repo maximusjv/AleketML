@@ -76,6 +76,7 @@ def infer(
     use_merge=True,
     num_of_annotations_to_save=0,
     save_annotated_images=False,
+    progress_bar=False,
 ):
     """
     Performs inference on a list of images and saves the results.
@@ -136,7 +137,7 @@ def infer(
         )
         stats_writer.writerow(headers)
         predictions = predictor.get_predictions(
-            images, iou_thresh, score_thresh, use_merge
+            images, iou_thresh, score_thresh, use_merge, progress_bar
         )
         for idx, pred in predictions.items():
             image = images[idx]
@@ -199,7 +200,7 @@ def load_model(model_path):
         model_path (str): Path to the .pth model file.
 
     Returns:
-        Predictor: A Predictor instance with the loaded FasterRCNN model.
+        FasterRCNN: A loaded FasterRCNN model.
     """
     import torchvision  # Importing torchvision here to avoid circular imports
 
@@ -209,8 +210,8 @@ def load_model(model_path):
         torchvision.models.detection.faster_rcnn.FastRCNNPredictor(in_features, 3)
     )
 
-    model.load_state_dict(torch.load(model_path))
-    return Predictor(model)  # Create and return a Predictor instance
+    model.load_state_dict(torch.load(model_path, weights_only=True))
+    return model  # Create and return a Predictor instance
 
 
 def load_pathes(path):
@@ -230,7 +231,7 @@ def load_pathes(path):
         return [
             os.path.join(path, file)
             for file in os.listdir(path)
-            if file.endswith([".jpeg", ".jpg", ".png"])
+            if file.endswith((".jpeg", ".jpg", ".png"))
         ]
     else:
         raise ValueError(f"Invalid path: {path}")
@@ -241,7 +242,7 @@ def main():
         description="Run inference and generate statistics."
     )
     parser.add_argument(
-        "model-path",
+        "model_path",
         type=str,
         help="Path to model weights (fasterrcnn_resnet50_fpn_v2)",
     )
@@ -251,19 +252,19 @@ def main():
         help="path to image dir or a file contatining list of images to infer",
     )
     parser.add_argument(
-        "--output-dir",
+        "--output_dir",
         type=str,
         default="output",
         help="output directory (default: output)",
     )
     parser.add_argument(
-        "--iou-thresh",
+        "--iou_thresh",
         type=float,
         default=0.5,
         help="IOU threshold for postproccessing (default: 0.5)",
     )
     parser.add_argument(
-        "--score-thresh",
+        "--score_thresh",
         type=float,
         default=0.5,
         help="score threshold for object detection (default: 0.5)",
@@ -275,49 +276,49 @@ def main():
         help="number of annotated images to save (default: 0, -1 for all)",
     )
     parser.add_argument(
-        "--save-annotated-images", action="store_true", help="save annotated images"
+        "--save_annotated_images", action="store_true", help="save annotated images"
     )
     parser.add_argument(
-        "--use-merge", action="store_true", help="use merge postprocessing"
+        "--use_merge", action="store_true", help="use merge postprocessing"
     )
     parser.add_argument(
-        "--images-per-batch",
+        "--images_per_batch",
         type=int,
-        default=4,
-        help="number of images to process in a batch (default: 4)",
+        default=1,
+        help="number of images to process in a batch (default: 1)",
     )
     parser.add_argument(
-        "--image-size-factor",
+        "--image_size_factor",
         type=float,
         default=1.0,
         help="factor to resize input images (default: 1.0)",
     )
     parser.add_argument(
-        "--detections-per-image",
+        "--detections_per_image",
         type=int,
         default=300,
         help="maximum number of detections per image (default: 300)",
     )
     parser.add_argument(
-        "--detections-per-patch",
+        "--detections_per_patch",
         type=int,
         default=100,
         help="maximum number of detections per patch (default: 100)",
     )
     parser.add_argument(
-        "--patches-per-batch",
+        "--patches_per_batch",
         type=int,
         default=4,
         help="number of patches to process in a batch (default: 4)",
     )
     parser.add_argument(
-        "--patch-size",
+        "--patch_size",
         type=int,
         default=1024,
         help="size of each image patch (default: 1024)",
     )
     parser.add_argument(
-        "--patch-overlap",
+        "--patch_overlap",
         type=float,
         default=0.2,
         help="overlap between adjacent patches (default: 0.2)",
@@ -353,6 +354,7 @@ def main():
         args.use_merge,
         args.num_of_annotations_to_save,
         args.save_annotated_images,
+        progress_bar=True,
     )
 
 

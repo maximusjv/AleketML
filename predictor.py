@@ -1,9 +1,8 @@
 import numpy as np
 import torch
 import torchvision.ops as ops
-from PIL.Image import Image
-from torch.utils.data import Dataset, DataLoader
-from torchvision.models.detection import FasterRCNN
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from box_utils import box_iou
 from consts import collate_fn
@@ -189,7 +188,8 @@ class Predictor:
                         images,
                         iou_thresh,
                         score_thresh,
-                        use_merge=True):
+                        use_merge=True,
+                        progress_bar=False):
         """
         Generate predictions for a set of images using the model.
 
@@ -204,6 +204,7 @@ class Predictor:
             score_thresh (float): The confidence score threshold for filtering detections.
             use_merge (bool, optional): If True, merge overlapping detections using WBF.
                 If False, use Non-Maximum Suppression (NMS). Defaults to True.
+            progress_bar (bool, optional): If True, shows tqdm progress bar. Defaults to False.
 
         Returns:
             dict[int, dict[str, np.array]]: A dictionary where keys are image indices and
@@ -222,6 +223,7 @@ class Predictor:
                                 collate_fn=collate_fn)
 
         result = {}
+        pbar = tqdm(total=len(images)) if progress_bar else None
 
         for batched_patches, batched_images, batched_idxs in dataloader:
             for patches, imgs, idx in zip(batched_patches, batched_images,
@@ -238,7 +240,11 @@ class Predictor:
                                           iou_thresh,
                                           use_merge=use_merge)
                 result[idx] = predictions
-
+            if pbar:
+                pbar.update(len(batched_idxs))
+            
+        if pbar:
+            pbar.close()
         del patcher
         del dataloader
         return result
