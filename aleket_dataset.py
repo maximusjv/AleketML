@@ -92,7 +92,7 @@ class AleketDataset(Dataset):
             by_full_images[full_image_id].append(name)
         return by_full_images
 
-    def get_annots(self, indices: list[int | str]) -> list[dict]:
+    def get_annots(self, indices: list[int | str] = None) -> list[dict]:
         indices = self.to_indices(indices)
         targets = [
             {
