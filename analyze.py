@@ -1,26 +1,21 @@
 import csv
 import os
-from typing import Optional
 
 import numpy as np
+
 from box_utils import box_area, box_iou
 from consts import NUM_TO_CLASSES
 
 
-def count_analyze(
-    annots: list[dict], save_folder: Optional[str] = None
-) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray]:
+def count_analyze(annots, save_folder=None):
     """
-    Analyzes the dataset annotations to count occurrences of each class, object sizes, and IoU distributions.
+    Analyzes dataset annotations to count class occurrences, object sizes, and IoU distributions.
 
-    This function processes a list of annotation dictionaries, computes various statistics,
-    and optionally saves the results to CSV files.
+    Processes annotation dictionaries, computes statistics, and optionally saves results to CSV files.
 
     Args:
-        annots (list[dict]): A list of annotation dictionaries. Each dictionary should contain
-                                'boxes' and 'labels' keys with corresponding values.
-        save_folder (Optional[str]): The path to the folder where CSV files with statistics
-                                        will be saved. If None, no files are saved.
+        annots (list[dict]): List of annotation dictionaries with 'boxes' and 'labels' keys.
+        save_folder (str, optional): Path to save CSV files with statistics. If None, no files are saved.
 
     Returns:
         tuple[dict, np.ndarray, np.ndarray, np.ndarray]: A tuple containing:
@@ -60,22 +55,17 @@ def count_analyze(
             count_inds = np.searchsorted(count_thrs, [count], side="left")[0]
             by_img_count[count_inds] += 1
 
-            areas_inds = np.searchsorted(
-                area_thrs, areas, side="left"
-            ).tolist()
+            areas_inds = np.searchsorted(area_thrs, areas, side="left").tolist()
             for i in areas_inds:
                 by_area[i] += 1
 
-            ious_inds = np.searchsorted(
-                iou_thrs, ious, side="left"
-            ).tolist()
+            ious_inds = np.searchsorted(iou_thrs, ious, side="left").tolist()
             for i in ious_inds:
                 by_iou[i] += 1
 
-    by_iou //= 2 # every IoU value is counted twice
-    
-    if save_folder is not None:
+    by_iou //= 2  # every IoU value is counted twice
 
+    if save_folder is not None:
         os.makedirs(save_folder, exist_ok=True)
 
         with open(

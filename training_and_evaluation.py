@@ -1,31 +1,20 @@
-# Standard Library
 import math
 import os
-# Third-party Libraries
+
 from tqdm import tqdm
-# PyTorch
 import torch
-import torchvision.models.detection as tv_detection
-from torch import GradScaler, optim
-from torch.utils.data import DataLoader
-from torchvision.models.detection import FasterRCNN
+from torch import GradScaler
 
 from StatsTracker import StatsTracker
 from TrainingLogger import TrainingLogger
-from aleket_dataset import AleketDataset
-from checkpoints import RunParams, save_checkpoint, load_checkpoint
+from checkpoints import save_checkpoint, load_checkpoint
 from consts import LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
 from metrics import Evaluator
 
-def train(model: FasterRCNN,
-          dataset: AleketDataset,
-          params: RunParams,
-          device: torch.device,
 
-          resume: bool = False,
-          checkpoints: bool = False,
-          verbose: bool = True,
-          ):
+def train(
+    model, dataset, params, device, resume=False, checkpoints=False, verbose=True
+):
     """
     Trains the Faster R-CNN model.
 
@@ -64,14 +53,24 @@ def train(model: FasterRCNN,
     logger = TrainingLogger()
 
     if resume:
-        print(f"Resuming from  {last_checkpoint_path}...")
-        (model, optimizer, lr_scheduler,
-         epoch_trained, scaler, loaded_stats_tracker) = load_checkpoint(model, last_checkpoint_path)
-        logger.best_val_metric = loaded_stats_tracker.best_val_metric[PRIMARY_VALIDATION_METRIC]
+        print(f"Resuming from  {last_checkpoint_path}...")
+        (
+            model,
+            optimizer,
+            lr_scheduler,
+            epoch_trained,
+            scaler,
+            loaded_stats_tracker,
+        ) = load_checkpoint(model, last_checkpoint_path)
+        logger.best_val_metric = loaded_stats_tracker.best_val_metric[
+            PRIMARY_VALIDATION_METRIC
+        ]
         stats_tracker.best_val_metric = loaded_stats_tracker.best_val_metric
         stats_tracker.train_loss_history = loaded_stats_tracker.train_loss_history
         stats_tracker.val_metrics_history = loaded_stats_tracker.val_metrics_history
-        print(f"Last epoch:\n {stats_tracker.train_loss_history[-1]}, {stats_tracker.val_metrics_history[-1]}")
+        print(
+            f"Last epoch:\n {stats_tracker.train_loss_history[-1]}, {stats_tracker.val_metrics_history[-1]}"
+        )
 
     params.save(params_path)
 
@@ -83,14 +82,10 @@ def train(model: FasterRCNN,
             logger.log_epoch_start(epoch, total_epochs, lr_scheduler.get_last_lr()[0])
 
         dataset.augmentation = augmentation
-        losses = train_one_epoch(
-            model, optimizer, train_dataloader, device, scaler
-        )
+        losses = train_one_epoch(model, optimizer, train_dataloader, device, scaler)
 
         dataset.augmentation = None
-        eval_stats = evaluate(
-            model, val_dataloader, evaluator, device
-        )
+        eval_stats = evaluate(model, val_dataloader, evaluator, device)
 
         is_best = stats_tracker.update_stats(losses, eval_stats)
         stats_tracker.plot_stats(validation_graph)
@@ -99,31 +94,45 @@ def train(model: FasterRCNN,
 
         epoch_trained = epoch
         if checkpoints:
-            save_checkpoint(model, optimizer, lr_scheduler, epoch_trained,
-                            last_checkpoint_path, scaler, stats_tracker)
+            save_checkpoint(
+                model,
+                optimizer,
+                lr_scheduler,
+                epoch_trained,
+                last_checkpoint_path,
+                scaler,
+                stats_tracker,
+            )
             if is_best:
-                save_checkpoint(model, optimizer, lr_scheduler, epoch_trained,
-                                best_checkpoint_bath, scaler, stats_tracker)
+                save_checkpoint(
+                    model,
+                    optimizer,
+                    lr_scheduler,
+                    epoch_trained,
+                    best_checkpoint_bath,
+                    scaler,
+                    stats_tracker,
+                )
         if verbose:
             logger.log_epoch_end(epoch, losses, eval_stats)
 
-    save_checkpoint(model, optimizer, lr_scheduler, epoch_trained,
-                    last_checkpoint_path, scaler, stats_tracker)
-    
+    save_checkpoint(
+        model,
+        optimizer,
+        lr_scheduler,
+        epoch_trained,
+        last_checkpoint_path,
+        scaler,
+        stats_tracker,
+    )
 
 
-def train_one_epoch(
-        model: tv_detection.FasterRCNN,
-        optimizer: optim.Optimizer,
-        dataloader: DataLoader,
-        device: torch.device,
-        scaler: GradScaler,
-) -> dict[str, float]:
+def train_one_epoch(model, optimizer, dataloader, device, scaler):
     """
     Trains the model for one epoch using mixed precision training.
 
     Args:
-        model (tv_detection.FasterRCNN): The Faster R-CNN model.
+        model (FasterRCNN): The Faster R-CNN model.
         optimizer (optim.Optimizer): The optimizer for training.
         dataloader (DataLoader): The training dataloader.
         device (torch.device): The device to use for training (e.g., 'cuda' or 'cpu').
@@ -137,20 +146,24 @@ def train_one_epoch(
     model.train()
     size = len(dataloader)
 
-    loss_values = {
-        key: 0 for key in LOSSES_NAMES
-    }
+    loss_values = {key: 0 for key in LOSSES_NAMES}
 
-    for (images, targets) in tqdm(dataloader, desc="Training batches"):
+    for images, targets in tqdm(dataloader, desc="Training batches"):
 
         images = [img.to(device) for img in images]
-        targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
+        targets = [
+            {
+                k: v.to(device) if isinstance(v, torch.Tensor) else v
+                for k, v in t.items()
+            }
+            for t in targets
+        ]
 
         with torch.autocast(device_type=device.type, dtype=torch.float16):
             losses = model(images, targets)
             loss = sum(loss for loss in losses.values())
 
-        loss_values['loss'] += loss.item()
+        loss_values["loss"] += loss.item()
         for loss_name, value in losses.items():
             loss_values[loss_name] += value.item()
 
@@ -169,17 +182,12 @@ def train_one_epoch(
     return loss_values
 
 
-def evaluate(
-        model: tv_detection.FasterRCNN,
-        dataloader: DataLoader,
-        evaluator: Evaluator,
-        device: torch.device,
-) -> dict[str, float]:
+def evaluate(model, dataloader, evaluator, device):
     """
     Evaluates the model on the given dataloader using metrics.
 
     Args:
-        model (tv_detection.FasterRCNN): The Faster R-CNN model to evaluate.
+        model (FasterRCNN): The Faster R-CNN model to evaluate.
         dataloader (DataLoader): The dataloader containing the evaluation data.
         evaluator (Evaluator): The evaluator object for calculating metrics.
         device (torch.device): The device to run the evaluation on (e.g., 'cuda' or 'cpu').
@@ -190,11 +198,19 @@ def evaluate(
     model.eval()
     dts = {}
 
-    for (images, targets) in tqdm(dataloader, desc="Evaluating batches"):
+    for images, targets in tqdm(dataloader, desc="Evaluating batches"):
         images = [img.to(device) for img in images]
-        targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
+        targets = [
+            {
+                k: v.to(device) if isinstance(v, torch.Tensor) else v
+                for k, v in t.items()
+            }
+            for t in targets
+        ]
 
-        with torch.no_grad(), torch.autocast(device_type=device.type, dtype=torch.float16):
+        with torch.no_grad(), torch.autocast(
+            device_type=device.type, dtype=torch.float16
+        ):
             predictions = model(images)
             res = {
                 target["image_id"]: output

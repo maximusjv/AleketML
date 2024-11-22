@@ -1,23 +1,13 @@
-# Standard Library
 import math
 
-# Third-party Libraries
 import PIL
-
-# PyTorch
 import torch
 import torchvision.transforms.v2.functional as F
 from PIL.Image import Image
-from torch import Tensor
 from torch.utils.data import Dataset
 
 
-def make_patches(
-    width: int,
-    height: int,
-    patch_size: int,
-    overlap: float,
-) -> tuple[int, int, list[tuple[int, int, int, int]]]:
+def make_patches(width, height, patch_size, overlap):
     """
     Create a grid of overlapping patches for an image.
 
@@ -62,20 +52,15 @@ def make_patches(
 
 
 class Patcher(Dataset):
-    def __init__(
-        self,
-        images: list[str | Image | Tensor] | Dataset,
-        size_factor: float,
-        patch_size: int,
-        patch_overlap: float,
-    ):
+
+    def __init__(self, images, size_factor, patch_size, patch_overlap):
         """
         Initialize the Patcher class.
 
         This constructor sets up the Patcher object with the given parameters for image processing.
 
         Args:
-            images (list[str | Image | torch.Tensor] | Dataset): A list of image paths, PIL Images, 
+            images (list[str | Image | torch.Tensor] | Dataset): A list of image paths, PIL Images,
                 PyTorch tensors, or a PyTorch Dataset containing the images to be processed.
             size_factor (float): A scaling factor to adjust the size of the input images.
             patch_size (int): The size of each square patch to be extracted from the images.
@@ -88,9 +73,7 @@ class Patcher(Dataset):
         self.patch_overlap = patch_overlap
 
     @torch.no_grad()
-    def preprocess(
-        self, image: Image | Tensor | str, idx: int
-    ) -> tuple[list[tuple[int, int, int, int]], Tensor, int]:
+    def preprocess(self, image, idx):
         """
         Preprocess an input image by resizing, padding, and splitting it into patches.
 
@@ -105,7 +88,7 @@ class Patcher(Dataset):
         Returns:
             tuple: A tuple containing three elements:
                 - patches (list[tuple[int, int, int, int]]): A list of tuples, each
-                  containing the coordinates (x1, y1, x2, y2) of a patch.
+                 containing the coordinates (x1, y1, x2, y2) of a patch.
                 - patched_images (Tensor): A tensor containing all the image patches.
                 - idx (int): The input index, passed through.
 
@@ -139,11 +122,9 @@ class Patcher(Dataset):
     def __len__(self):
         """Returns the total number of images in the dataset."""
         return len(self.images)
-    
+
     @torch.no_grad()
-    def __getitem__(
-        self, idx: int
-    ) -> tuple[list[tuple[int, int, int, int]], Tensor, int]:
+    def __getitem__(self, idx):
         """
         Retrieve and preprocess an item from the dataset.
 

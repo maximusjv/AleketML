@@ -5,7 +5,6 @@ import os
 
 import PIL
 import numpy as np
-from PIL.Image import Image
 import torch
 from torchvision.transforms.v2 import functional as F
 
@@ -14,10 +13,7 @@ from visualize import visualize_bboxes
 from predictor import Predictor
 
 
-def stats_count(
-    classes: dict[int, str],
-    prediction: dict[str, np.array],
-) -> dict:
+def stats_count(classes, prediction):
     """
     Calculate statistics for detected objects in an image.
 
@@ -25,19 +21,19 @@ def stats_count(
     and calculates various statistics such as count and area for each class of object.
 
     Parameters:
-    classes (dict[int, str]): A dictionary mapping class IDs to class names.
-    prediction (dict[str, np.array]): A dictionary containing prediction results.
-        Must include 'boxes' and 'labels' keys with corresponding numpy arrays.
+        classes (dict[int, str]): A dictionary mapping class IDs to class names.
+        prediction (dict[str, np.array]): A dictionary containing prediction results.
+            Must include 'boxes' and 'labels' keys with corresponding numpy arrays.
 
     Returns:
-    dict: A dictionary containing the following keys:
-        - 'bboxes': List of bounding boxes for all detected objects.
-        - 'labels': List of class names for all detected objects.
-        - 'count': Dictionary with class names as keys and object counts as values.
-        - 'area': Dictionary with class names as keys and total object areas as values.
+        dict: A dictionary containing the following keys:
+            - 'bboxes': List of bounding boxes for all detected objects.
+            - 'labels': List of class names for all detected objects.
+            - 'count': Dictionary with class names as keys and object counts as values.
+            - 'area': Dictionary with class names as keys and total object areas as values.
 
     Note:
-    - Area is calculated as an ellipse (pi * width/2 * height/2) for each bounding box.
+        - Area is calculated as an ellipse (pi * width/2 * height/2) for each bounding box.
     """
     bboxes = np.asarray(prediction["boxes"])
     labels = np.asarray(prediction["labels"])
@@ -71,19 +67,34 @@ def stats_count(
 
 
 def infer(
-    predictor: Predictor,
-    images: list[str | Image | torch.Tensor],
-    classes: dict[int, str],
-    output_dir: str,
-    iou_thresh: float,
-    score_thresh: float,
-    use_merge: bool = True,
-    num_of_annotations_to_save: int = 0,
-    save_annotated_images: bool = False,
-) -> None:
+    predictor,
+    images,
+    classes,
+    output_dir,
+    iou_thresh,
+    score_thresh,
+    use_merge=True,
+    num_of_annotations_to_save=0,
+    save_annotated_images=False,
+):
+    """
+    Performs inference on a list of images and saves the results.
 
-    if num_of_annotated_images_to_save == -1:
-        num_of_annotated_images_to_save = len(images)
+    Args:
+        predictor (Predictor): The predictor object to use for inference.
+        images (list[str | Image | torch.Tensor]): List of image paths, PIL Images, or tensors.
+        classes (dict[int, str]): Dictionary mapping class indices to class names.
+        output_dir (str): Directory to save the results.
+        iou_thresh (float): IoU threshold for non-maximum suppression.
+        score_thresh (float): Score threshold for object detection.
+        use_merge (bool, optional): Whether to use WBF. Defaults to True.
+        num_of_annotations_to_save (int, optional): Number of annotations to save.
+                                                        Defaults to 0.
+        save_annotated_images (bool, optional): Whether to save annotated images. Defaults to False.
+    """
+
+    if num_of_annotations_to_save == -1:
+        num_of_annotations_to_save = len(images)
 
     output_dir = os.path.normpath(output_dir)
     os.makedirs(output_dir, exist_ok=True)
@@ -92,7 +103,7 @@ def infer(
 
     bboxes_dir = (
         os.path.join(output_dir, "bboxes")
-        if num_of_annotated_images_to_save > 0
+        if num_of_annotations_to_save > 0
         else None
     )
     if bboxes_dir:
@@ -100,7 +111,7 @@ def infer(
 
     annotated_dir = (
         os.path.join(output_dir, "annotated")
-        if num_of_annotated_images_to_save > 0
+        if num_of_annotations_to_save > 0 and save_annotated_images
         else None
     )
     if annotated_dir:
@@ -124,7 +135,9 @@ def infer(
             ]
         )
         stats_writer.writerow(headers)
-        predictions = predictor.get_predictions(images, iou_thresh, score_thresh, use_merge)
+        predictions = predictor.get_predictions(
+            images, iou_thresh, score_thresh, use_merge
+        )
         for idx, pred in predictions.items():
             image = images[idx]
             image_name = os.path.basename(image) if isinstance(image, str) else str(idx)
@@ -154,7 +167,7 @@ def infer(
 
             if num_of_annotations_to_save > 0:
                 num_of_annotations_to_save -= 1
-                
+
                 if save_annotated_images:
                     annotated_image_path = os.path.join(
                         annotated_dir, f"{image_name}_annotated.jpeg"
@@ -163,8 +176,10 @@ def infer(
                         image = PIL.Image.open(image)
                     if isinstance(image, torch.Tensor):
                         image = F.to_pil_image(image)
-                    visualize_bboxes(image, bboxes, labels, save_path=annotated_image_path)
-                    
+                    visualize_bboxes(
+                        image, bboxes, labels, save_path=annotated_image_path
+                    )
+
                 bboxes_file_path = os.path.join(bboxes_dir, f"{image_name}.csv")
                 with open(bboxes_file_path, "w", newline="") as bboxes_file:
                     bboxes_writer = csv.writer(bboxes_file, delimiter=",")
@@ -174,28 +189,31 @@ def infer(
                         bboxes_writer.writerow(
                             [int(x1), int(y1), int(x2), int(y2), class_name]
                         )
-                        
-def load_model(model_path: str):
-    import torchvision
+
+
+def load_model(model_path):
     """
     Loads a FasterRCNN_ResNet50_FPN_V2 model with the specified number of classes.
 
     Args:
         model_path (str): Path to the .pth model file.
-        num_classes (int, optional): Number of classes in the model (including background). Defaults to 3.
 
     Returns:
         Predictor: A Predictor instance with the loaded FasterRCNN model.
     """
+    import torchvision  # Importing torchvision here to avoid circular imports
 
     model = torchvision.models.detection.fasterrcnn_resnet50_fpn_v2(weights="DEFAULT")
     in_features = model.roi_heads.box_predictor.cls_score.in_features
-    model.roi_heads.box_predictor = torchvision.models.detection.faster_rcnn.FastRCNNPredictor(in_features, 3) 
+    model.roi_heads.box_predictor = (
+        torchvision.models.detection.faster_rcnn.FastRCNNPredictor(in_features, 3)
+    )
 
     model.load_state_dict(torch.load(model_path))
     return Predictor(model)  # Create and return a Predictor instance
 
-def load_pathes(path: str) -> list[str]:
+
+def load_pathes(path):
     """
     Loads image paths from a file or a directory.
 
@@ -209,59 +227,58 @@ def load_pathes(path: str) -> list[str]:
         with open(path, "r") as file:
             return [line.strip() for line in file]
     elif os.path.isdir(path):
-        return [os.path.join(path, file) for file in os.listdir(path) if file.endswith([
-            ".jpeg", ".jpg", ".png"
-            ])]
+        return [
+            os.path.join(path, file)
+            for file in os.listdir(path)
+            if file.endswith([".jpeg", ".jpg", ".png"])
+        ]
     else:
         raise ValueError(f"Invalid path: {path}")
-    
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run inference and generate statistics."
-        )
-    parser.add_argument(
-        "model-path", 
-        type=str, 
-        help="Path to model weights (fasterrcnn_resnet50_fpn_v2)"
     )
     parser.add_argument(
-        "images_path",  
-        type=str, 
-        help="path to image dir or a file contatining list of images to infer"
+        "model-path",
+        type=str,
+        help="Path to model weights (fasterrcnn_resnet50_fpn_v2)",
     )
     parser.add_argument(
-        "--output-dir", 
-        type=str, 
-        default="output", 
-        help="output directory (default: output)"
+        "images_path",
+        type=str,
+        help="path to image dir or a file contatining list of images to infer",
     )
     parser.add_argument(
-        "--iou-thresh", 
-        type=float, 
-        default=0.5, 
-        help="IOU threshold for postproccessing (default: 0.5)"
+        "--output-dir",
+        type=str,
+        default="output",
+        help="output directory (default: output)",
     )
     parser.add_argument(
-        "--score-thresh", 
-        type=float, 
-        default=0.5, 
-        help="score threshold for object detection (default: 0.5)"
+        "--iou-thresh",
+        type=float,
+        default=0.5,
+        help="IOU threshold for postproccessing (default: 0.5)",
     )
     parser.add_argument(
-        "--num_of_annotations_to_save", 
-        type=int, 
-        default=0, 
-        help="number of annotated images to save (default: 0, -1 for all)"
+        "--score-thresh",
+        type=float,
+        default=0.5,
+        help="score threshold for object detection (default: 0.5)",
     )
     parser.add_argument(
-        "--save-annotated-images", 
-        action="store_true", 
-        help="save annotated images"
+        "--num_of_annotations_to_save",
+        type=int,
+        default=0,
+        help="number of annotated images to save (default: 0, -1 for all)",
     )
     parser.add_argument(
-        "--use-merge", 
-        action="store_true", 
-        help="use merge postprocessing"
+        "--save-annotated-images", action="store_true", help="save annotated images"
+    )
+    parser.add_argument(
+        "--use-merge", action="store_true", help="use merge postprocessing"
     )
     parser.add_argument(
         "--images-per-batch",
@@ -305,15 +322,15 @@ def main():
         default=0.2,
         help="overlap between adjacent patches (default: 0.2)",
     )
-    
+
     args = parser.parse_args()
-    
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"USING DEVICE: {device}")
-    
+
     model = load_model(args.model_path)
     pathes = load_pathes(args.images_path)
-      
+
     predictor = Predictor(
         model,
         device,
@@ -325,7 +342,7 @@ def main():
         patch_size=args.patch_size,
         patch_overlap=args.patch_overlap,
     )
-    
+
     infer(
         predictor,
         pathes,
@@ -335,8 +352,9 @@ def main():
         args.score_thresh,
         args.use_merge,
         args.num_of_annotations_to_save,
-        args.save_annotated_images
+        args.save_annotated_images,
     )
+
 
 if __name__ == "__main__":
     main()

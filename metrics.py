@@ -1,20 +1,17 @@
-# Third-party Libraries
 import numpy as np
-
-# PyTorch
 from torch import Tensor
+
 from box_utils import match_gts_dts, box_area
 from consts import VALIDATION_METRICS
 
-def prepare_gts(
-    annots: list[dict],
-) -> tuple[dict[tuple[int, int], np.ndarray], list, list]:
+
+def prepare_gts(annots):
     """Prepares ground truth data for evaluation.
 
     Extracts ground truth bounding boxes and labels from the dataset and organizes them by image and category.
 
     Args:
-
+        annots (list[dict]): A list of annotation dictionaries, each containing 'image_id', 'labels', and 'boxes'.
 
     Returns:
         tuple[dict, list, list]: A tuple containing:
@@ -49,16 +46,14 @@ def prepare_gts(
     return gts, sorted(image_ids), sorted(categories)
 
 
-def prepare_dts(
-    predictions: dict[int, dict[str, Tensor]]
-) -> dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]:
+def prepare_dts(predictions):
     """Prepares detection results for evaluation.
 
     Organizes detection results by image and category, sorting them by confidence score.
 
     Args:
         predictions (dict): A dictionary mapping image IDs to prediction dictionaries
-                            containing 'boxes', 'scores', and 'labels'.
+                             containing 'boxes', 'scores', and 'labels'.
 
     Returns:
         dict: A dictionary mapping (image_id, category_id) to a tuple of:
@@ -103,12 +98,7 @@ def prepare_dts(
     return dts
 
 
-def pr_eval(
-    gt_matches: np.ndarray,
-    dt_matches: np.ndarray,
-    dt_scores: np.ndarray,
-    recall_thrs: np.ndarray,
-):
+def pr_eval(gt_matches, dt_matches, dt_scores, recall_thrs):
     """
     Calculates precision-recall curve and related metrics.
 
@@ -117,9 +107,9 @@ def pr_eval(
 
     Args:
         gt_matches (np.ndarray): A NumPy array of boolean values indicating
-                                 which ground truth objects were matched.
+                                    which ground truth objects were matched.
         dt_matches (np.ndarray): A NumPy array of boolean values indicating
-                                 which detected objects were matched.
+                                    which detected objects were matched.
         dt_scores (np.ndarray): A NumPy array of detection confidence scores.
         recall_thrs (np.ndarray): A NumPy array of recall thresholds.
 
@@ -157,7 +147,7 @@ def pr_eval(
     return {"R": R, "P": P, "F1": F1, "pr_curve": np.array(pr_curve)}
 
 
-def area_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
+def area_relative_diff(gt, dt):
     """
     Calculates the relative difference in area between ground truth and detected bounding boxes.
 
@@ -167,7 +157,7 @@ def area_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
 
     Returns:
         float: The relative difference in area. A positive value indicates that the detected area
-               is larger than the ground truth area, while a negative value indicates the opposite.
+                is larger than the ground truth area, while a negative value indicates the opposite.
     """
     gt_area = box_area(gt).sum()
     dt_area = box_area(dt).sum()
@@ -175,7 +165,7 @@ def area_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
     return (dt_area - gt_area) / mean if mean != 0 else 0
 
 
-def count_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
+def count_relative_diff(gt, dt):
     """
     Calculates the relative difference in count between ground truth and detected bounding boxes.
 
@@ -185,7 +175,7 @@ def count_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
 
     Returns:
         float: The relative difference in count. A positive value indicates that there are more
-               detections than ground truths, while a negative value indicates the opposite.
+                detections than ground truths, while a negative value indicates the opposite.
     """
     gt_count = len(gt)
     dt_count = len(dt)
@@ -196,13 +186,12 @@ def count_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
 
 class Evaluator:
 
-    def __init__(self, annots: list[dict]):
+    def __init__(self, annots):
         """
         Initializes the Evaluator class with ground truth data, image IDs, and categories.
 
         Parameters:
-        - ds (AleketDataset): The dataset containing images and ground truth annotations.
-        - indices (list[int]): A list of indices indicating which data samples to use for evaluation.
+            annots (list[dict]): A list of annotation dictionaries, each containing 'image_id', 'labels', and 'boxes'.
 
         The function prepares ground truth data by calling the prepare_gts function. It initializes
         recall thresholds, IOU threshold, and an empty dictionary for storing evaluation results.
@@ -214,9 +203,7 @@ class Evaluator:
 
         self.eval_res = {}
 
-    def quantitative_eval(
-        self, dts: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]
-    ) -> dict[str, np.ndarray]:
+    def quantitative_eval(self, dts):
         """
         Performs quantitative evaluation of detection results.
 
@@ -253,9 +240,7 @@ class Evaluator:
 
         return {"AD": AD, "CD": CD}
 
-    def pr_eval(
-        self, dts: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]
-    ) -> dict[str, np.ndarray]:
+    def pr_eval(self, dts):
         """
         Evaluates precision-recall metrics for object detection results.
 
@@ -321,7 +306,7 @@ class Evaluator:
             "F1": F1,
         }
 
-    def eval(self, dts: dict[int, dict[str, Tensor]]) -> dict:
+    def eval(self, dts):
         """
         Evaluates the detection results and calculates various metrics.
 

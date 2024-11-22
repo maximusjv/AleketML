@@ -1,20 +1,25 @@
 import json
 import os
-from typing import Any, Literal
 
 import torch
 from torch import GradScaler
 from torch.optim import SGD
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torchvision.models.detection import FasterRCNN
+
 # Torchvision
 from torchvision.transforms import v2
 
-from StatsTracker import StatsTracker
-from aleket_dataset import AleketDataset
+def default_optimizer(model, params=None):
+    """
+    Creates a default SGD optimizer for the model.
 
+    Args:
+        model (FasterRCNN): The model to create the optimizer for.
+        params (dict, optional): A dictionary of parameters to override the defaults.
 
-def default_optimizer(model: FasterRCNN, params: dict = None) -> SGD:
+    Returns:
+        SGD: The SGD optimizer.
+    """
     model_params = [p for p in model.parameters() if p.requires_grad]
     if params:
         return SGD(params=model_params, **params)
@@ -22,14 +27,24 @@ def default_optimizer(model: FasterRCNN, params: dict = None) -> SGD:
         return SGD(params=model_params)
 
 
-def default_lr_scheduler(optimizer: torch.optim.Optimizer, params: dict = None) -> ReduceLROnPlateau:
+def default_lr_scheduler(optimizer, params=None):
+    """
+    Creates a default ReduceLROnPlateau learning rate scheduler.
+
+    Args:
+        optimizer (torch.optim.Optimizer): The optimizer to create the scheduler for.
+        params (dict, optional): A dictionary of parameters to override the defaults.
+
+    Returns:
+        ReduceLROnPlateau: The learning rate scheduler.
+    """
     if params:
         return ReduceLROnPlateau(optimizer=optimizer, mode="min", **params)
     else:
         return ReduceLROnPlateau(optimizer=optimizer, mode="min")
 
 
-def default_augmentation() -> dict:
+def default_augmentation():
     """
     Returns a dictionary containing default augmentation settings.
 
@@ -42,46 +57,23 @@ def default_augmentation() -> dict:
         dict: A dictionary with augmentation settings.
     """
     return {
-        "horizontal_flip": {
-            "p": 0.5
-        },
-        "vertical_flip": {
-            "p": 0.5
-        },
-        "scale_jitter": {
-            "target_size": (1024, 1024),
-            "scale_range": (0.8, 1.2)
-        },
-        "perspective": {
-            "distortion_scale": 0.1,
-            "p": 0.5
-        },
-        "rotation": {
-            "degrees": 30,
-            "expand": True
-        },
-        "color_jitter": {
-            "brightness": 0.1,
-            "contrast": 0.1,
-            "saturation": 0.05
-        }
+        "horizontal_flip": {"p": 0.5},
+        "vertical_flip": {"p": 0.5},
+        "scale_jitter": {"target_size": (1024, 1024), "scale_range": (0.8, 1.2)},
+        "perspective": {"distortion_scale": 0.1, "p": 0.5},
+        "rotation": {"degrees": 30, "expand": True},
+        "color_jitter": {"brightness": 0.1, "contrast": 0.1, "saturation": 0.05},
     }
 
 
-def default_optimizer_params() -> dict:
-    return {
-        "lr": 0.001,
-        "momentum": 0.9,
-        "weight_decay": 0.0001
-    }
+def default_optimizer_params():
+    """Returns a dictionary of default optimizer parameters."""
+    return {"lr": 0.001, "momentum": 0.9, "weight_decay": 0.0001}
 
 
-def default_lr_scheduler_params() -> dict:
-    return {
-        "factor": 0.5,
-        "patience": 10,
-        "min_lr": 0.0001
-    }
+def default_lr_scheduler_params():
+    """Returns a dictionary of default learning rate scheduler parameters."""
+    return {"factor": 0.5, "patience": 10, "min_lr": 0.0001}
 
 
 class RunParams:
@@ -97,26 +89,23 @@ class RunParams:
         dataloader_workers (int): Number of workers for the dataloader.
         total_epochs (int): Total number of training epochs.
 
-
     Methods:
         load(path): Loads parameters from a JSON file.
         save(path): Saves parameters to a JSON file.
     """
 
-    def __init__(self,
-                 run_name: str = "default",
-                 train_set: dict[str, list[str]] = None,
-                 validation_set: dict[str, list[str]] = None,
-
-                 batch_size: int = 16,
-                 dataloader_workers: int = 16,
-                 total_epochs: int = 100,
-
-                 augmentation: dict[str, Any] | Literal["DEFAULT"] = None,
-                 optimizer: dict[str, Any] = None,
-                 lr_scheduler: dict[str, Any] = None
-
-                 ):
+    def __init__(
+        self,
+        run_name="default",
+        train_set=None,
+        validation_set=None,
+        batch_size=16,
+        dataloader_workers=16,
+        total_epochs=100,
+        augmentation=None,
+        optimizer=None,
+        lr_scheduler=None,
+    ):
 
         if augmentation == "DEFAULT":
             augmentation = default_augmentation()
@@ -140,30 +129,27 @@ class RunParams:
         self.train_set = train_set
         self.validation_set = validation_set
 
-    def load(self, path: str):
+    def load(self, path):
         """Loads parameters from a JSON file."""
-        with open(path, 'r') as file:
+        with open(path, "r") as file:
             state = json.load(file)
         self.__dict__.update(**state)
 
-    def save(self, path: str):
+    def save(self, path):
         """Saves parameters to a JSON file."""
-        with open(path, 'w') as file:
+        with open(path, "w") as file:
             json.dump(self.__dict__, file, indent=1)
 
-    def parse(self, model: FasterRCNN, dataset: AleketDataset):
+    def parse(self, model, dataset):
         """
         Parses training parameters and sets up training components.
 
         Args:
-            params (TrainParams): Training parameters.
             model (FasterRCNN): The Faster R-CNN model.
             dataset (AleketDataset): The dataset.
 
         Returns:
-            dict: A dictionary containing the training dataloader, validation dataloader,
-                  optimizer, learning rate scheduler, augmentation pipeline, total epochs,
-                  and run path.
+            dict: A dictionary containing training components.
         """
         train_names = []
         val_names = []
@@ -174,10 +160,8 @@ class RunParams:
             val_names.extend(indices)
 
         train_dataloader, val_dataloader = dataset.create_dataloaders(
-            train_names,
-            val_names,
-            self.batch_size,
-            self.dataloader_workers)
+            train_names, val_names, self.batch_size, self.dataloader_workers
+        )
 
         optimizer = default_optimizer(model, self.optimizer)
         lr_scheduler = default_lr_scheduler(optimizer, self.lr_scheduler)
@@ -189,22 +173,34 @@ class RunParams:
             augmentation = None
         else:
             if "horizontal_flip" in self.augmentation:
-                augmentation_list.append(v2.RandomHorizontalFlip(**self.augmentation["horizontal_flip"]))
+                augmentation_list.append(
+                    v2.RandomHorizontalFlip(**self.augmentation["horizontal_flip"])
+                )
 
             if "vertical_flip" in self.augmentation:
-                augmentation_list.append(v2.RandomHorizontalFlip(**self.augmentation["vertical_flip"]))
+                augmentation_list.append(
+                    v2.RandomHorizontalFlip(**self.augmentation["vertical_flip"])
+                )
 
             if "scale_jitter" in self.augmentation:
-                augmentation_list.append(v2.ScaleJitter(**self.augmentation["scale_jitter"]))
+                augmentation_list.append(
+                    v2.ScaleJitter(**self.augmentation["scale_jitter"])
+                )
 
             if "perspective" in self.augmentation:
-                augmentation_list.append(v2.RandomPerspective(**self.augmentation["perspective"]))
+                augmentation_list.append(
+                    v2.RandomPerspective(**self.augmentation["perspective"])
+                )
 
             if "rotation" in self.augmentation:
-                augmentation_list.append(v2.RandomRotation(**self.augmentation["rotation"]))
+                augmentation_list.append(
+                    v2.RandomRotation(**self.augmentation["rotation"])
+                )
 
             if "color_jitter" in self.augmentation:
-                augmentation_list.append(v2.ColorJitter(**self.augmentation["color_jitter"]))
+                augmentation_list.append(
+                    v2.ColorJitter(**self.augmentation["color_jitter"])
+                )
 
         augmentation = v2.Compose(augmentation_list) if augmentation_list else None
 
@@ -219,13 +215,15 @@ class RunParams:
         }
 
 
-def save_checkpoint(model: FasterRCNN,
-                    optimizer: SGD,
-                    lr_scheduler: ReduceLROnPlateau,
-                    epoch_trained: int,
-                    checkpoint_path: str,
-                    scaler: GradScaler,
-                    stats_tracker: StatsTracker) -> None:
+def save_checkpoint(
+    model,
+    optimizer,
+    lr_scheduler,
+    epoch_trained,
+    checkpoint_path,
+    scaler,
+    stats_tracker,
+):
     """Saves the model's training checkpoint.
 
     Saves the current state of the model, optimizer, learning rate
@@ -238,7 +236,7 @@ def save_checkpoint(model: FasterRCNN,
         epoch_trained (int): The number of epochs the model has been trained for.
         checkpoint_path (str): The path to save the checkpoint file.
         scaler (GradScaler): The GradScaler instance used for mixed precision training.
-        stats_tracker (StatsTracker):
+        stats_tracker (StatsTracker): Statistics tracker for tracking training and validation statistics.
     """
     save_state = {
         "model_state_dict": model.state_dict(),
@@ -246,14 +244,12 @@ def save_checkpoint(model: FasterRCNN,
         "lr_scheduler_state_dict": lr_scheduler.state_dict(),
         "stats_tracker": stats_tracker,
         "epoch_trained": epoch_trained,
-        "scaler_state_dict": scaler.state_dict()
+        "scaler_state_dict": scaler.state_dict(),
     }
     torch.save(save_state, checkpoint_path)
 
 
-def load_checkpoint(model: FasterRCNN,
-                    checkpoint_path: str
-                    ) -> tuple[FasterRCNN, SGD, ReduceLROnPlateau, int, GradScaler, StatsTracker]:
+def load_checkpoint(model, checkpoint_path):
     """Loads a model checkpoint.
 
     Loads a previously saved model checkpoint from the specified path,
@@ -266,13 +262,13 @@ def load_checkpoint(model: FasterRCNN,
 
     Returns:
         tuple: A tuple containing the loaded model, optimizer,
-               learning rate scheduler, the number of epochs trained, and the GradScaler instance.
+                learning rate scheduler, the number of epochs trained, and the GradScaler instance.
     """
     save_state = torch.load(checkpoint_path, weights_only=False)
 
     model.load_state_dict(save_state["model_state_dict"])
-    optimizer = default_optimizer(model)  # Assuming you have a get_optimizer function
-    lr_scheduler = default_lr_scheduler(optimizer)  # Assuming you have a get_lr_scheduler function
+    optimizer = default_optimizer(model)
+    lr_scheduler = default_lr_scheduler(optimizer)
     epoch_trained = save_state["epoch_trained"]
     stats_tracker = save_state["stats_tracker"]
     scaler = GradScaler()  # Initialize a new GradScaler

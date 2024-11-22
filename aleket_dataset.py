@@ -1,25 +1,18 @@
-# Standard Library
 import json
 import os
 import shutil
-from typing import Optional
 
-# Third-party Libraries
 import PIL.Image
-import numpy as np
 
-# PyTorch
 import torch
+from torch.utils.data import Dataset, DataLoader, Subset
 import torchvision.transforms.v2 as v2
 import torchvision.tv_tensors as tv_tensors
-from torch.utils.data import Dataset, DataLoader, Subset
 
 from consts import collate_fn
 
 
-# Downloads and extracts the dataset if it doesn't exist locally.
-def download_dataset(save_dir: str, patched_dataset_gdrive_id: str = ""):
-    import gdown
+def download_dataset(save_dir, patched_dataset_gdrive_id=""):
     """Downloads and extracts the dataset if it doesn't exist locally.
 
     Args:
@@ -30,20 +23,27 @@ def download_dataset(save_dir: str, patched_dataset_gdrive_id: str = ""):
         The path to the saved dataset directory.
     """
     if not os.path.exists(save_dir):
+        import gdown  # Import gdown only when needed
+
         gdown.download(id=patched_dataset_gdrive_id, output="_temp_.zip")
         shutil.unpack_archive("_temp_.zip", save_dir)
         os.remove("_temp_.zip")
     return save_dir
 
 
-# Aleket Dataset
 class AleketDataset(Dataset):
+    """
+    Aleket dataset for object detection.
 
-    def __init__(
-            self,
-            dataset_dir: str,
-            augmentation: Optional[v2.Transform] = None
-    ) -> None:
+    Loads images and annotations from a directory.
+
+    Args:
+        dataset_dir (str): The path to the dataset directory.
+        augmentation (torchvision.transforms.v2.Transform, optional):
+            Augmentation transforms to apply to the images and bounding boxes.
+    """
+
+    def __init__(self, dataset_dir, augmentation=None):
         self.img_dir = os.path.join(dataset_dir, "imgs")
 
         with open(os.path.join(dataset_dir, "dataset.json"), "r") as annot_file:
@@ -57,38 +57,43 @@ class AleketDataset(Dataset):
         self.augmentation = augmentation
         print(f"Dataset loaded from {dataset_dir}")
 
-    def to_indices(self, indices: Optional[list[str | int]] = None):
+    def to_indices(self, indices=None):
+        """Converts a list of image names or indices to a list of indices."""
         if indices is None:
             return list(range(len(self.dataset)))
         return [self.image_to_ind[i] if isinstance(i, str) else i for i in indices]
 
-    def to_names(self, indices: Optional[list[str | int]] = None):
+    def to_names(self, indices=None):
+        """Converts a list of image names or indices to a list of names."""
         if indices is None:
             return list(range(len(self.dataset)))
         return [self.image_to_ind[i] if isinstance(i, str) else i for i in indices]
 
-    def by_full_images(self) -> dict[str, list[int]]:
+    def by_full_images(self):
         """Groups image indices by their corresponding full image ID.
+
         Returns:
-            dict[str, list[int]]: A dictionary mapping full image IDs to lists of 
-                                  corresponding image indices in the dataset.
+            dict[str, list[int]]: A dictionary mapping full image IDs to lists of
+                corresponding image indices in the dataset.
         """
         by_full_images = {}
         for idx, name in enumerate(self.ind_to_image):
-            full_image_id = name.split('_')[0]
-            if not full_image_id in by_full_images:
+            full_image_id = name.split("_")[0]
+            if full_image_id not in by_full_images:
                 by_full_images[full_image_id] = []
             by_full_images[full_image_id].append(name)
         return by_full_images
 
-    def get_annots(self, indices: list[int | str] = None) -> list[dict]:
+    def get_annots(self, indices=None):
+        """Retrieves annotations for the specified indices."""
         indices = self.to_indices(indices)
         targets = [
             {
                 "image_id": idx,
                 "labels": self.dataset[self.ind_to_image[idx]]["category_id"],
-                "boxes": self.dataset[self.ind_to_image[idx]]["boxes"]
-            } for idx in indices
+                "boxes": self.dataset[self.ind_to_image[idx]]["boxes"],
+            }
+            for idx in indices
         ]
         return targets
 
@@ -96,7 +101,7 @@ class AleketDataset(Dataset):
         """Returns the total number of images in the dataset."""
         return len(self.ind_to_image)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx):
         """
         Retrieves an image and its corresponding target annotations.
 
@@ -104,8 +109,8 @@ class AleketDataset(Dataset):
             idx (int): The index of the image to retrieve.
 
         Returns:
-            tuple: A tuple containing the image as a torchvision.tv_tensors.Image object 
-                   and a dictionary of target annotations.
+            tuple: A tuple containing the image as a torchvision.tv_tensors.Image object
+                and a dictionary of target annotations.
         """
         image_id = self.ind_to_image[idx]
 
@@ -121,7 +126,9 @@ class AleketDataset(Dataset):
 
         labels = torch.as_tensor(labels, dtype=torch.int64)
         if bboxes:
-            bboxes = tv_tensors.BoundingBoxes(bboxes, format="XYXY", canvas_size=(ht, wt))
+            bboxes = tv_tensors.BoundingBoxes(
+                bboxes, format="XYXY", canvas_size=(ht, wt)
+            )
         else:
             bboxes = torch.zeros((0, 4), dtype=torch.float32)
 
@@ -138,27 +145,27 @@ class AleketDataset(Dataset):
 
         return img, target
 
-    # Dataset split
-    def split_dataset(self,
-                      dataset_fraction: float,
-                      validation_fraction: float,
-                      generator: np.random.Generator,
-                      ) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
+    def split_dataset(self, dataset_fraction, validation_fraction, generator):
         """Splits the dataset into train and validation sets.
 
         Splits the dataset into train and validation sets, ensuring that all patches
         from the same full image are kept together in the same set.
 
         Args:
-            dataset (AleketDataset): The dataset to split.
-            dataset_fraction (float): The fraction of the dataset to use (for debugging/testing).
-            validation_fraction (float): The fraction of the used dataset to allocate for validation.
-            generator (np.random.Generator): A NumPy random generator for reproducible splitting.
+            dataset_fraction (float): The fraction of the dataset to use
+                (for debugging/testing).
+            validation_fraction (float): The fraction of the used dataset to
+                allocate for validation.
+            generator (np.random.Generator): A NumPy random generator for
+                reproducible splitting.
 
         Returns:
-            tuple[dict[str, list[int]], dict[str, list[int]]]: A tuple containing two dictionaries:
-                - The first dictionary maps full image IDs to lists of patch indices for the training set.
-                - The second dictionary maps full image IDs to lists of patch indices for the validation set.
+            tuple[dict[str, list[int]], dict[str, list[int]]]: A tuple containing
+                two dictionaries:
+                - The first dictionary maps full image IDs to lists of patch
+                    indices for the training set.
+                - The second dictionary maps full image IDs to lists of patch
+                    indices for the validation set.
         """
         by_full_images = self.by_full_images()
 
@@ -184,21 +191,18 @@ class AleketDataset(Dataset):
 
         return train_set, validation_set
 
-    def create_dataloaders(
-            self,
-            train_indices: list[int | str],
-            val_indices: list[int | str],
-            batch_size: int,
-            num_workers: int,
-    ) -> tuple[DataLoader, DataLoader]:
+    def create_dataloaders(self, train_indices, val_indices, batch_size, num_workers):
         """Creates DataLoaders for split dataset.
+
         Args:
             train_indices: Dataset indices to train.
             val_indices: Dataset indices to validate.
             batch_size: The batch size for the DataLoaders.
             num_workers: The number of worker processes for data loading.
+
         Returns:
-            A tuple containing the training DataLoader and the validation DataLoader.
+            tuple[DataLoader, DataLoader]: A tuple containing the training DataLoader and
+                the validation DataLoader.
         """
 
         train_dataset = Subset(self, self.to_indices(train_indices))
