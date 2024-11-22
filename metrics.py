@@ -153,17 +153,17 @@ def pr_eval(
     rc = tps / len(gt_matches)
     pr = tps / (fps + tps + np.spacing(1))
 
-    pr = pr.tolist()
+    pr_interpolated = pr.tolist()
     # Interpolate precision
-    for i in range(len(pr) - 1, 0, -1):
-        if pr[i] > pr[i - 1]:
-            pr[i - 1] = pr[i]
+    for i in range(len(pr_interpolated) - 1, 0, -1):
+        if pr_interpolated[i] > pr_interpolated[i - 1]:
+            pr_interpolated[i - 1] = pr_interpolated[i]
 
-    inds = np.searchsorted(rc, recall_thrs, side="left")
+    inds = np.searchsorted(pr_interpolated, recall_thrs, side="left")
     pr_curve = np.zeros(len(recall_thrs)).tolist()
 
     for ri, pi in enumerate(inds):
-        pr_curve[ri] = pr[pi] if pi < len(pr) else 0
+        pr_curve[ri] = pr_interpolated[pi] if pi < len(pr_interpolated) else 0
 
     R = rc[-1] if len(rc) > 0 else 0
     P = pr[-1] if len(pr) > 0 else 0
@@ -182,12 +182,11 @@ def area_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
     Returns:
         float: The relative difference in area. A positive value indicates that the detected area
                is larger than the ground truth area, while a negative value indicates the opposite.
-               Returns -2 if there are detections but no ground truth, and 0 if both are empty.
     """
     gt_area = box_area(gt).sum()
     dt_area = box_area(dt).sum()
-
-    return (dt_area - gt_area) / gt_area if gt_area != 0 else -2 if dt_area != 0 else 0
+    mean = (gt_area + dt_area) / 2.0
+    return (dt_area - gt_area) / mean if mean != 0 else 0
 
 
 def count_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
@@ -201,16 +200,12 @@ def count_relative_diff(gt: np.ndarray, dt: np.ndarray) -> float:
     Returns:
         float: The relative difference in count. A positive value indicates that there are more
                detections than ground truths, while a negative value indicates the opposite.
-               Returns -2 if there are detections but no ground truth, and 0 if both are empty.
     """
     gt_count = len(gt)
     dt_count = len(dt)
 
-    return (
-        (dt_count - gt_count) / gt_count
-        if gt_count != 0
-        else -2 if dt_count != 0 else 0
-    )
+    mean = (gt_count + dt_count) / 2.0
+    return (dt_count - gt_count) / mean if mean != 0 else 0
 
 
 class Evaluator:
@@ -390,9 +385,6 @@ class Evaluator:
             "F1": F1,
             "quatitative_results": q_results,
         }
-
-        AD = AD[AD != -2]
-        CD = CD[CD != -2]
 
         metrics = [AP, R, P, F1, np.abs(AD).mean(), np.abs(CD).mean()]
         return dict(zip(VALIDATION_METRICS, metrics))
