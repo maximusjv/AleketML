@@ -8,7 +8,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision.models.detection import FasterRCNN
 import torchvision.ops as ops
 
-from box_utils import box_area, box_iou
+from box_utils import box_iou
 from consts import collate_fn
 from patcher import Patcher
 
@@ -41,39 +41,35 @@ def merge_detections(
     merged_scores = []
     merged_labels = []
 
-    while len(boxes) > 0:
-        current_box = boxes[0]
-        current_label = labels[0]
-
-        ious = box_iou(current_box[np.newaxis, ...], boxes)
-        matching_indices = np.where(ious[0] > iou_threshold)[0]
-
-        matched_boxes = boxes[matching_indices]
-        matched_scores = scores[matching_indices]
-
-        # Merge boxes
-        merged_box = np.array(
-            [
-                matched_boxes[:, 0].min(),
-                matched_boxes[:, 1].min(),
-                matched_boxes[:, 2].max(),
-                matched_boxes[:, 3].max(),
-            ]
-        )
-
-        # Weighted average of scores
-        areas = box_area(matched_boxes)
-        merged_score = (matched_scores * areas).sum() / areas.sum()
-
-        merged_boxes.append(merged_box)
-        merged_scores.append(merged_score)
-        merged_labels.append(current_label)
-
-        # Remove merged boxes
-        boxes = np.delete(boxes, matching_indices, axis=0)
-        scores = np.delete(scores, matching_indices, axis=0)
-        labels = np.delete(labels, matching_indices, axis=0)
-
+    cluster_boxes = []
+    cluster_scores = []
+    
+    for current_box, current_score, current_label in zip(boxes, scores, labels):
+        found = False
+        
+        for i, merged_box in enumerate(merged_boxes):
+            iou = box_iou(current_box[np.newaxis, ...], merged_box[np.newaxis, ...])
+            if iou > iou_threshold:
+                found = True
+                
+                cluster_boxes[i].append(current_box)
+                cluster_scores[i].append(current_score)
+                
+                matched_boxes = np.asarray(cluster_boxes[i])
+                matched_scores = np.asarray(cluster_scores[i])
+                
+                merged_boxes[i] = (matched_boxes * matched_scores[:, np.newaxis]).sum(axis=0) / matched_scores.sum()
+                merged_scores[i] = matched_scores.mean()
+                break
+        
+        if not found:
+            merged_boxes.append(current_box)
+            merged_scores.append(current_score)
+            merged_labels.append(current_label)
+            
+            cluster_boxes.append([current_box])
+            cluster_scores.append([current_score])
+            
     return np.array(merged_boxes), np.array(merged_scores), np.array(merged_labels)
 
 
