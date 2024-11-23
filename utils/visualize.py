@@ -1,18 +1,14 @@
 import numpy as np
 from PIL import ImageDraw, ImageFont
 
-def visualize_bboxes(img,
-                     bboxes,
-                     labels,
-                     linewidth=4,
-                     fontsize=20,
-                     save_path=None):
+
+def visualize_bboxes(img, bboxes, labels, linewidth=4, fontsize=20, save_path=None):
     """
     Visualizes bounding boxes on an image and optionally saves it.
 
     Args:
         img (Image.Image): A PIL Image object.
-        bboxes (list[list[int]]): A list of bounding boxes, each represented as a list 
+        bboxes (list[list[int]]): A list of bounding boxes, each represented as a list
                                    of integers [xmin, ymin, xmax, ymax].
         labels (list[str]): A list of labels corresponding to the bounding boxes.
         linewidth (int, optional): Width of the bounding box lines. Defaults to 4.
@@ -34,9 +30,7 @@ def visualize_bboxes(img,
     for bbox, label in zip(bboxes, labels):
         xmin, ymin, xmax, ymax = bbox
         color = class_colors.get(label, "blue")
-        draw.rectangle([(xmin, ymin), (xmax, ymax)],
-                       outline=color,
-                       width=linewidth)
+        draw.rectangle([(xmin, ymin), (xmax, ymax)], outline=color, width=linewidth)
         draw.text((xmin, ymin - fontsize), label, fill=color, font=font)
 
     if save_path:
@@ -59,10 +53,7 @@ def draw_heat_map(name, x_label, y_label, values, ax, x_ticks, y_ticks):
         y_ticks (np.ndarray): Array of tick labels for the y-axis.
     """
     masked_results = np.ma.masked_where(values == -1, values)
-    ax.imshow(masked_results,
-              cmap="viridis",
-              vmin=0,
-              interpolation="nearest")
+    ax.imshow(masked_results, cmap="viridis", vmin=0, interpolation="nearest")
 
     X = len(x_ticks)
     Y = len(y_ticks)
@@ -80,7 +71,4 @@ def draw_heat_map(name, x_label, y_label, values, ax, x_ticks, y_ticks):
         for j in range(X):
             value = values[i, j]
             color = "black" if value > max_val / 2 else "white"
-            text = ax.text(j, i, f"{value:.3f}",
-                           ha="center",
-                           va="center",
-                           color=color)
+            text = ax.text(j, i, f"{value:.3f}", ha="center", va="center", color=color)

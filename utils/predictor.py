@@ -43,8 +43,7 @@ def merge_detections(boxes, scores, labels, iou_threshold):
         found = False
 
         for i, merged_box in enumerate(merged_boxes):
-            iou = box_iou(current_box[np.newaxis, ...],
-                          merged_box[np.newaxis, ...])
+            iou = box_iou(current_box[np.newaxis, ...], merged_box[np.newaxis, ...])
             if iou > iou_threshold:
                 found = True
 
@@ -55,9 +54,9 @@ def merge_detections(boxes, scores, labels, iou_threshold):
                 matched_scores = np.asarray(cluster_scores[i])
 
                 # Merge boxes using weighted average
-                merged_boxes[
-                    i] = (matched_boxes * matched_scores[:, np.newaxis]
-                         ).sum(axis=0) / matched_scores.sum()
+                merged_boxes[i] = (matched_boxes * matched_scores[:, np.newaxis]).sum(
+                    axis=0
+                ) / matched_scores.sum()
                 merged_scores[i] = matched_scores.mean()
                 break
 
@@ -69,17 +68,18 @@ def merge_detections(boxes, scores, labels, iou_threshold):
             cluster_boxes.append([current_box])
             cluster_scores.append([current_score])
 
-    return np.array(merged_boxes), np.array(merged_scores), np.array(
-        merged_labels)
+    return np.array(merged_boxes), np.array(merged_scores), np.array(merged_labels)
 
 
 @torch.no_grad()
-def postprocess(size_factor,
-                patches,
-                predictions,
-                post_postproces_detections,
-                iou_thresh,
-                use_merge=True):
+def postprocess(
+    size_factor,
+    patches,
+    predictions,
+    post_postproces_detections,
+    iou_thresh,
+    use_merge=True,
+):
     """
     Postprocesses object detection predictions.
 
@@ -120,13 +120,14 @@ def postprocess(size_factor,
 
         boxes /= size_factor
         if use_merge:
-            boxes, scores, labels = merge_detections(boxes, scores, labels,
-                                                    iou_thresh)
+            boxes, scores, labels = merge_detections(boxes, scores, labels, iou_thresh)
         else:
-            keep = ops.batched_nms(torch.as_tensor(boxes),
-                                    torch.as_tensor(scores),
-                                    torch.as_tensor(labels),
-                                    iou_thresh).numpy(force=True)
+            keep = ops.batched_nms(
+                torch.as_tensor(boxes),
+                torch.as_tensor(scores),
+                torch.as_tensor(labels),
+                iou_thresh,
+            ).numpy(force=True)
             boxes = boxes[keep]
             scores = scores[keep]
             labels = labels[keep]
@@ -145,16 +146,18 @@ def postprocess(size_factor,
 
 class Predictor:
 
-    def __init__(self,
-                 model,
-                 device,
-                 images_per_batch=4,
-                 image_size_factor=1,
-                 detections_per_image=300,
-                 detections_per_patch=100,
-                 patches_per_batch=4,
-                 patch_size=1024,
-                 patch_overlap=0.2):
+    def __init__(
+        self,
+        model,
+        device,
+        images_per_batch=4,
+        image_size_factor=1,
+        detections_per_image=300,
+        detections_per_patch=100,
+        patches_per_batch=4,
+        patch_size=1024,
+        patch_overlap=0.2,
+    ):
         """
         Initialize the Predictor class.
 
@@ -184,12 +187,9 @@ class Predictor:
         self.patches_per_batch = patches_per_batch
 
     @torch.no_grad()
-    def get_predictions(self,
-                        images,
-                        iou_thresh,
-                        score_thresh,
-                        use_merge=True,
-                        progress_bar=False):
+    def get_predictions(
+        self, images, iou_thresh, score_thresh, use_merge=True, progress_bar=False
+    ):
         """
         Generate predictions for a set of images using the model.
 
@@ -215,34 +215,42 @@ class Predictor:
         self.model.roi_heads.detections_per_img = self.detections_per_patch
         self.model.eval()
 
-        patcher = Patcher(images, self.image_size_factor, self.patch_size,
-                          self.patch_overlap)
-        dataloader = DataLoader(patcher,
-                                batch_size=self.images_per_batch,
-                                num_workers=self.images_per_batch,
-                                collate_fn=collate_fn)
+        patcher = Patcher(
+            images, self.image_size_factor, self.patch_size, self.patch_overlap
+        )
+        dataloader = DataLoader(
+            patcher,
+            batch_size=self.images_per_batch,
+            num_workers=self.images_per_batch,
+            collate_fn=collate_fn,
+        )
 
         result = {}
         pbar = tqdm(total=len(images)) if progress_bar else None
 
         for batched_patches, batched_images, batched_idxs in dataloader:
-            for patches, imgs, idx in zip(batched_patches, batched_images,
-                                         batched_idxs):
+            for patches, imgs, idx in zip(
+                batched_patches, batched_images, batched_idxs
+            ):
                 predictions = []
                 for b_imgs in torch.split(imgs, self.patches_per_batch):
                     b_imgs = b_imgs.to(self.device)
-                    with torch.autocast(device_type=self.device.type,
-                                        dtype=torch.float16):
+                    with torch.autocast(
+                        device_type=self.device.type, dtype=torch.float16
+                    ):
                         predictions.extend(self.model(b_imgs))
-                predictions = postprocess(self.image_size_factor, patches,
-                                          predictions,
-                                          self.per_image_detections,
-                                          iou_thresh,
-                                          use_merge=use_merge)
+                predictions = postprocess(
+                    self.image_size_factor,
+                    patches,
+                    predictions,
+                    self.per_image_detections,
+                    iou_thresh,
+                    use_merge=use_merge,
+                )
                 result[idx] = predictions
             if pbar:
                 pbar.update(len(batched_idxs))
-            
+
         if pbar:
             pbar.close()
         del patcher

@@ -9,6 +9,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 # Torchvision
 from torchvision.transforms import v2
 
+
 def default_optimizer(model, params=None):
     """
     Creates a default SGD optimizer for the model.
