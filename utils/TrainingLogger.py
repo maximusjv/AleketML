@@ -1,7 +1,7 @@
 import time
 from datetime import timedelta
 
-from consts import LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
+from utils.consts import LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
 
 
 class TrainingLogger:

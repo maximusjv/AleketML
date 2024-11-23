@@ -5,3 +5,4 @@ result*
 __pycache__
 .idea
 *statistics*
+.ipynb_checkpoints

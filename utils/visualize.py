@@ -1,5 +1,5 @@
 import numpy as np
-from PIL import  ImageDraw, ImageFont
+from PIL import ImageDraw, ImageFont
 
 def visualize_bboxes(img,
                      bboxes,

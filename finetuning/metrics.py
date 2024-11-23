@@ -1,8 +1,8 @@
 import numpy as np
 from torch import Tensor
 
-from box_utils import match_gts_dts, box_area
-from consts import VALIDATION_METRICS
+from utils.box_utils import match_gts_dts, box_area
+from utils.consts import VALIDATION_METRICS
 
 
 def prepare_gts(annots):

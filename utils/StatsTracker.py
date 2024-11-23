@@ -1,7 +1,7 @@
 import csv
 import os
 
-from consts import VALIDATION_METRICS, LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
+from utils.consts import VALIDATION_METRICS, LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
 
 
 class StatsTracker:

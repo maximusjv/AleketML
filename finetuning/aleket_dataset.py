@@ -9,7 +9,7 @@ from torch.utils.data import Dataset, DataLoader, Subset
 import torchvision.transforms.v2 as v2
 import torchvision.tv_tensors as tv_tensors
 
-from consts import collate_fn
+from utils.consts import collate_fn
 
 
 def download_dataset(save_dir, patched_dataset_gdrive_id=""):

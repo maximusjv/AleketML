@@ -3,8 +3,8 @@ import os
 
 import numpy as np
 
-from box_utils import box_area, box_iou
-from consts import NUM_TO_CLASSES
+from utils.box_utils import box_area, box_iou
+from utils.consts import NUM_TO_CLASSES
 
 
 def count_analyze(annots, save_folder=None):

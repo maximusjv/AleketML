@@ -4,9 +4,9 @@ import torchvision.ops as ops
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from box_utils import box_iou
-from consts import collate_fn
-from patcher import Patcher
+from utils.box_utils import box_iou
+from utils.consts import collate_fn
+from utils.patcher import Patcher
 
 
 def merge_detections(boxes, scores, labels, iou_threshold):

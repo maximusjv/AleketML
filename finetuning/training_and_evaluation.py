@@ -5,11 +5,11 @@ from tqdm import tqdm
 import torch
 from torch import GradScaler
 
-from StatsTracker import StatsTracker
-from TrainingLogger import TrainingLogger
-from checkpoints import save_checkpoint, load_checkpoint
-from consts import LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
-from metrics import Evaluator
+from utils.StatsTracker import StatsTracker
+from utils.TrainingLogger import TrainingLogger
+from finetuning.checkpoints import save_checkpoint, load_checkpoint
+from utils.consts import LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
+from finetuning.metrics import Evaluator
 
 
 def train(

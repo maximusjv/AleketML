@@ -165,7 +165,7 @@ class RunParams:
 
         optimizer = default_optimizer(model, self.optimizer)
         lr_scheduler = default_lr_scheduler(optimizer, self.lr_scheduler)
-        run_path = os.path.join("results", self.run_name)
+        run_path = os.path.join("../results", self.run_name)
         total_epochs = self.total_epochs
 
         augmentation_list = []

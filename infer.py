@@ -8,9 +8,9 @@ import numpy as np
 import torch
 from torchvision.transforms.v2 import functional as F
 
-from consts import NUM_TO_CLASSES
-from visualize import visualize_bboxes
-from predictor import Predictor
+from utils.consts import NUM_TO_CLASSES
+from utils.visualize import visualize_bboxes
+from utils.predictor import Predictor
 
 
 def stats_count(classes, prediction):
