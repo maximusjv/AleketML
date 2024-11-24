@@ -37,8 +37,8 @@ python infer.py <model_path> <images_path> [options]
 | Argument | Default | Description |
 |----------|---------|-------------|
 | --output_dir | "output" | Directory to save results |
-| --iou_thresh | 0.5 | IoU threshold for non-maximum suppression |
-| --score_thresh | 0.5 | Confidence score threshold for detections |
+| --iou_thresh | 0.2 | IoU threshold for non-maximum suppression |
+| --score_thresh | 0.8 | Confidence score threshold for detections |
 | --num_of_annotations_to_save | 0 | Number of annotated images to save (-1 for all) |
 | --save_annotated_images | False | Save images with visualized detections |
 | --use_merge | False | Use WBF (Weighted Box Fusion) for post-processing |

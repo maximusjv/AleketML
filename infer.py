@@ -260,14 +260,14 @@ def main():
     parser.add_argument(
         "--iou_thresh",
         type=float,
-        default=0.5,
-        help="IOU threshold for postproccessing (default: 0.5)",
+        default=0.2,
+        help="IOU threshold for postproccessing (default: 0.2)",
     )
     parser.add_argument(
         "--score_thresh",
         type=float,
-        default=0.5,
-        help="score threshold for object detection (default: 0.5)",
+        default=0.8,
+        help="score threshold for object detection (default: 0.8)",
     )
     parser.add_argument(
         "--num_of_annotations_to_save",
