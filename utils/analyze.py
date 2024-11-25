@@ -48,12 +48,13 @@ def count_analyze(annots, save_folder=None):
             )
 
         count = len(labels)
+        
+        count_inds = np.searchsorted(count_thrs, [count], side="left")[0]
+        by_img_count[count_inds] += 1
+        
         if len(boxes) > 0:
             ious = box_iou(boxes, boxes)
             ious = ious[np.where(ious <= 0.999)]  # remove iou of same boxes
-
-            count_inds = np.searchsorted(count_thrs, [count], side="left")[0]
-            by_img_count[count_inds] += 1
 
             areas_inds = np.searchsorted(area_thrs, areas, side="left").tolist()
             for i in areas_inds:
