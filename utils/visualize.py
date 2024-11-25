@@ -2,7 +2,9 @@ import numpy as np
 from PIL import ImageDraw, ImageFont
 
 
-def visualize_bboxes(img, bboxes, labels, linewidth=4, fontsize=20, save_path=None):
+def visualize_bboxes(
+    img, bboxes, labels, linewidth=4, fontsize=20, save_path=None, class_colors=None
+):
     """
     Visualizes bounding boxes on an image and optionally saves it.
 
@@ -14,12 +16,12 @@ def visualize_bboxes(img, bboxes, labels, linewidth=4, fontsize=20, save_path=No
         linewidth (int, optional): Width of the bounding box lines. Defaults to 4.
         fontsize (int, optional): Font size for the labels. Defaults to 20.
         save_path (str, optional): Path to save the image. Defaults to None.
-
+        class_colors (dict[str, str], optional): Class colors for the labels. Defaults to {"healthy": "green", "necrosed": "red"}
     Returns:
         Image.Image: PIL Image with visualized bounding boxes.
     """
-
-    class_colors = {"healthy": "green", "necrosed": "red"}
+    if class_colors == None:
+        class_colors = {"healthy": "green", "necrosed": "red"}
 
     draw = ImageDraw.Draw(img)
     try:

@@ -1,5 +1,5 @@
 .venv
-dataset*
+*dataset*
 .wslvenv
 result*
 __pycache__
