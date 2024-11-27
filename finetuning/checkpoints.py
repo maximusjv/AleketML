@@ -1,14 +1,36 @@
 import json
 import os
 
+
+
+# Torch
 import torch
 from torch import GradScaler
 from torch.optim import SGD
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-
-# Torchvision
 from torchvision.transforms import v2
+from torchvision.models.detection import fasterrcnn_resnet50_fpn_v2
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
+def get_default_model(device, trainable_backbone_layers=3):
+    """
+    Loads a pretrained Faster R-CNN ResNet-50 FPN model and modifies the classification head
+    to accommodate the specified number of classes in dataset (3 - including background).
+
+    Args:
+        device (torch.device): The device to move the model to (e.g., 'cuda' or 'cpu').
+        trainable_backbone_layers (int, optional): Number of trainable backbone layers. Defaults to 3.
+
+    Returns:
+        FasterRCNN: The Faster R-CNN model with the modified classification head.
+    """
+    model = fasterrcnn_resnet50_fpn_v2(
+        weights="DEFAULT", trainable_backbone_layers=trainable_backbone_layers
+    )
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, 3)
+
+    return model.to(device)
 
 def default_optimizer(model, params=None):
     """

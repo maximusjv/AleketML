@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from torchvision.transforms.v2 import functional as F
 
+from finetuning.checkpoints import get_default_model
 from utils.consts import NUM_TO_CLASSES
 from utils.visualize import visualize_bboxes
 from utils.predictor import Predictor
@@ -192,7 +193,7 @@ def infer(
                         )
 
 
-def load_model(model_path):
+def load_model(model_path, device):
     """
     Loads a FasterRCNN_ResNet50_FPN_V2 model with the specified number of classes.
 
@@ -202,17 +203,9 @@ def load_model(model_path):
     Returns:
         FasterRCNN: A loaded FasterRCNN model.
     """
-    import torchvision  # Importing torchvision here to avoid circular imports
-
-    model = torchvision.models.detection.fasterrcnn_resnet50_fpn_v2(weights="DEFAULT")
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-    model.roi_heads.box_predictor = (
-        torchvision.models.detection.faster_rcnn.FastRCNNPredictor(in_features, 3)
-    )
-
+    model = get_default_model(device)
     model.load_state_dict(torch.load(model_path, weights_only=True))
-    return model  # Create and return a Predictor instance
-
+    return model 
 
 def load_pathes(path):
     """
@@ -329,7 +322,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"USING DEVICE: {device}")
 
-    model = load_model(args.model_path)
+    model = load_model(args.model_path, device)
     pathes = load_pathes(args.images_path)
 
     predictor = Predictor(
