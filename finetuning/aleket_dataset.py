@@ -67,7 +67,7 @@ class AleketDataset(Dataset):
         """Converts a list of image names or indices to a list of names."""
         if indices is None:
             return list(range(len(self.dataset)))
-        return [self.image_to_ind[i] if isinstance(i, str) else i for i in indices]
+        return [self.ind_to_image[i] if isinstance(i, str) else i for i in indices]
 
     def by_full_images(self):
         """Groups image indices by their corresponding full image ID.

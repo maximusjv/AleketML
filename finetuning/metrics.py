@@ -354,7 +354,7 @@ class Evaluator:
             "recall": recall,
             "precision": precision,
             "F1": F1,
-            "quatitative_results": q_results,
+            "quantitative_results": q_results,
         }
 
         metrics = [AP, R, P, F1, np.abs(AD).mean(), np.abs(CD).mean()]
