@@ -9,7 +9,7 @@ from utils.consts import collate_fn
 from utils.patcher import Patcher
 
 
-def merge_detections(boxes, scores, labels, iou_threshold):
+def wbf(boxes, scores, labels, iou_threshold):
     """
     Merges object detections based on Weighted Boxes Fusion (WBF).
 
@@ -43,7 +43,7 @@ def merge_detections(boxes, scores, labels, iou_threshold):
         found = False
 
         for i, merged_box in enumerate(merged_boxes):
-            iou = box_iou(current_box[np.newaxis, ...], merged_box[np.newaxis, ...])
+            iou = box_iou(current_box[np.newaxis, ...], merged_box[np.newaxis, ...])[0, 0]
             if iou > iou_threshold:
                 found = True
 
@@ -69,6 +69,49 @@ def merge_detections(boxes, scores, labels, iou_threshold):
             cluster_scores.append([current_score])
 
     return np.array(merged_boxes), np.array(merged_scores), np.array(merged_labels)
+
+
+def batched_wbf(boxes, scores, labels, iou_threshold):
+    """
+    Merges object detections by classes based on Weighted Boxes Fusion (WBF).
+
+    Args:
+        boxes (np.ndarray): A numpy array of shape (N, 4) representing bounding boxes.
+        scores (np.ndarray): A numpy array of shape (N,) representing confidence scores.
+        classes (np.ndarray): A numpy array of shape (N,) representing class IDs.
+        iou_threshold (float): The IoU threshold for merging boxes.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray, np.ndarray]: A tuple containing:
+            - merged_boxes: A numpy array of shape (M, 4) representing merged boxes.
+            - merged_scores: A numpy array of shape (M,) representing merged scores.
+            - merged_classes: A numpy array of shape (M,) representing merged classes.
+    """
+
+
+    classes = labels.unique()
+
+    merged_boxes = []
+    merged_scores = []
+    merged_labels = []
+    
+    for class_id in classes:
+        keep = torch.where(labels == class_id)
+        mb, ms, ml = wbf(boxes[keep], scores[keep], labels[keep], iou_threshold)
+        merged_boxes.append(mb)
+        merged_scores.append(ms)
+        merged_labels.append(ml)
+
+    merged_boxes = np.concatenate(merged_boxes,axis=0)
+    merged_scores = np.concatenate(merged_scores,axis=0)
+    merged_labels = np.concatenate(merged_labels,axis=0)
+
+    indices = np.argsort(-merged_scores)
+    merged_boxes = merged_boxes[indices]
+    merged_scores = merged_scores[indices]
+    merged_labels = merged_labels[indices]
+    
+    return merged_boxes, merged_scores, merged_labels
 
 
 @torch.no_grad()
@@ -120,7 +163,7 @@ def postprocess(
 
         boxes /= size_factor
         if use_merge:
-            boxes, scores, labels = merge_detections(boxes, scores, labels, iou_thresh)
+            boxes, scores, labels = batched_wbf(boxes, scores, labels, iou_thresh)
         else:
             keep = ops.batched_nms(
                 torch.as_tensor(boxes),
@@ -150,7 +193,7 @@ class Predictor:
         self,
         model,
         device,
-        images_per_batch=4,
+        images_per_batch=1,
         image_size_factor=1,
         detections_per_image=300,
         detections_per_patch=100,

@@ -272,7 +272,7 @@ def main():
         "--save_annotated_images", action="store_true", help="save annotated images"
     )
     parser.add_argument(
-        "--use_merge", action="store_true", help="use merge postprocessing"
+        "--use_nms", action="store_true", help="use nms for postprocessing"
     )
     parser.add_argument(
         "--images_per_batch",
@@ -344,7 +344,7 @@ def main():
         args.output_dir,
         args.iou_thresh,
         args.score_thresh,
-        args.use_merge,
+        not args.use_nms,
         args.num_of_annotations_to_save,
         args.save_annotated_images,
         progress_bar=True,
