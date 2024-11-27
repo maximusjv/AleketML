@@ -6,3 +6,4 @@ __pycache__
 .idea
 *statistics*
 .ipynb_checkpoints
+model.pth
