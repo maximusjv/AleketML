@@ -42,9 +42,8 @@ python infer.py <model_path> <images_path> [options]
 | --num_of_annotations_to_save | 0 | Number of annotated images to save (-1 for all) |
 | --save_annotated_images | False | Save images with visualized detections |
 | --use_nms | False | Use NMS (Non Maximum Supression) instead of WBF (Weighted Box Fusion) for post-processing |
-| --images_per_batch | 1 | Number of images to process in each batch |
 | --image_size_factor | 1.0 | Factor to resize input images |
-| --detections_per_image | 300 | Maximum number of detections per image |
+| --detections_per_image | 500 | Maximum number of detections per image |
 | --detections_per_patch | 100 | Maximum number of detections per patch |
 | --patches_per_batch | 4 | Number of patches to process in each batch |
 | --patch_size | 1024 | Size of each image patch |

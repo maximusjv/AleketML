@@ -275,12 +275,6 @@ def main():
         "--use_nms", action="store_true", help="use nms for postprocessing"
     )
     parser.add_argument(
-        "--images_per_batch",
-        type=int,
-        default=1,
-        help="number of images to process in a batch (default: 1)",
-    )
-    parser.add_argument(
         "--image_size_factor",
         type=float,
         default=1.0,
@@ -289,7 +283,7 @@ def main():
     parser.add_argument(
         "--detections_per_image",
         type=int,
-        default=300,
+        default=500,
         help="maximum number of detections per image (default: 300)",
     )
     parser.add_argument(
@@ -328,7 +322,6 @@ def main():
     predictor = Predictor(
         model,
         device,
-        images_per_batch=args.images_per_batch,
         image_size_factor=args.image_size_factor,
         detections_per_image=args.detections_per_image,
         detections_per_patch=args.detections_per_patch,

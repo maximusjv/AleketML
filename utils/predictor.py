@@ -89,14 +89,14 @@ def batched_wbf(boxes, scores, labels, iou_threshold):
     """
 
 
-    classes = labels.unique()
+    classes = np.unique(labels)
 
     merged_boxes = []
     merged_scores = []
     merged_labels = []
     
     for class_id in classes:
-        keep = torch.where(labels == class_id)
+        keep = np.where(labels == class_id)
         mb, ms, ml = wbf(boxes[keep], scores[keep], labels[keep], iou_threshold)
         merged_boxes.append(mb)
         merged_scores.append(ms)
@@ -193,9 +193,8 @@ class Predictor:
         self,
         model,
         device,
-        images_per_batch=1,
         image_size_factor=1,
-        detections_per_image=300,
+        detections_per_image=500,
         detections_per_patch=100,
         patches_per_batch=4,
         patch_size=1024,
@@ -220,7 +219,6 @@ class Predictor:
         """
         self.device = device
         self.model = model.to(device)
-        self.images_per_batch = images_per_batch
         self.image_size_factor = image_size_factor
         self.per_image_detections = detections_per_image
 
@@ -263,8 +261,8 @@ class Predictor:
         )
         dataloader = DataLoader(
             patcher,
-            batch_size=self.images_per_batch,
-            num_workers=self.images_per_batch,
+            batch_size=1,
+            num_workers=0,
             collate_fn=collate_fn,
         )
 
