@@ -1,8 +1,9 @@
 import numpy as np
+from tqdm import tqdm
+
 import torch
 import torchvision.ops as ops
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
 from utils.box_utils import box_iou
 from utils.consts import collate_fn

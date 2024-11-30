@@ -1,6 +1,8 @@
 import csv
 import os
 
+from matplotlib import pyplot as plt
+
 from utils.consts import VALIDATION_METRICS, LOSSES_NAMES, PRIMARY_VALIDATION_METRIC
 
 
@@ -67,15 +69,12 @@ class StatsTracker:
 
     def plot_stats(self, save_path):
         """
-        Plots the training loss and validation AP@.50:.05:.95 over epochs.
-
-        Generates a plot showing the trend of the training loss and the specified validation metric
-        (e.g., AP@.50:.05:.95) over the training epochs. The plot is save to specified path.
+        Plots the training loss and given validation AP, AAD, ACD over epochs.
+        The plot is saved to specified path.
 
         Args:
             save_path (str): The path to save the plot to.
         """
-        from matplotlib import pyplot as plt
 
         fig, (ax1, ax2) = plt.subplots(2, sharex=True, figsize=(12, 8))
         fig.suptitle("Training Statistics")
@@ -97,7 +96,6 @@ class StatsTracker:
         ax2.set_ylabel("Validation")
         ax2.legend()
 
-        if save_path:
-            fig.savefig(save_path)
+        fig.savefig(save_path)
 
         plt.close(fig)

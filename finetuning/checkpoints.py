@@ -1,9 +1,6 @@
 import json
 import os
 
-
-
-# Torch
 import torch
 from torch import GradScaler
 from torch.optim import SGD
