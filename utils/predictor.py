@@ -1,12 +1,10 @@
+from PIL.Image import Image
 import numpy as np
-from tqdm import tqdm
 
 import torch
 import torchvision.ops as ops
-from torch.utils.data import DataLoader
 
 from utils.box_utils import box_iou
-from utils.consts import collate_fn
 from utils.patcher import Patcher
 
 
@@ -229,72 +227,108 @@ class Predictor:
         self.patches_per_batch = patches_per_batch
 
     @torch.no_grad()
-    def get_predictions(
-        self, images, iou_thresh, score_thresh, use_merge=True, progress_bar=False
+    def predict(
+        self, images, iou_thresh, score_thresh, use_merge=True
     ):
         """
-        Generate predictions for a set of images using the model.
+        Generate predictions for an image or a set of images using the model.
 
-        This method processes the input images, applies the model to detect objects,
-        and post-processes the results.
+        This method efficiently processes input images, applies the object detection model,
+        and post-processes the results to produce a generator of predictions.
 
         Args:
-            images (list[Image | torch.Tensor | str] | Dataset): The input images to process.
-                Can be a list of PIL Images, torch Tensors, file paths, or a Dataset.
-            iou_thresh (float): The Intersection over Union threshold for merging
-                or filtering overlapping detections.
-            score_thresh (float): The confidence score threshold for filtering detections.
-            use_merge (bool, optional): If True, merge overlapping detections using WBF.
+            images (list[Image | torch.Tensor | str] | Dataset | Image | torch.Tensor | str): 
+                The input image(s) to process. Can be a single image or a list of images, 
+                provided as PIL Images, torch Tensors, file paths, or a Dataset.
+            iou_thresh (float): 
+                The Intersection over Union (IoU) threshold used for merging or filtering 
+                overlapping detections.
+            score_thresh (float): 
+                The confidence score threshold used to filter out low-confidence detections.
+            use_merge (bool, optional): 
+                If True, merge overlapping detections using Weighted Boxes Fusion (WBF). 
                 If False, use Non-Maximum Suppression (NMS). Defaults to True.
-            progress_bar (bool, optional): If True, shows tqdm progress bar. Defaults to False.
 
-        Returns:
-            dict[int, dict[str, np.array]]: A dictionary where keys are image indices and
-            values are dictionaries containing 'boxes', 'scores', and 'labels' as numpy arrays.
+        Yields:
+            dict[int, dict[str, np.array]]: A dictionary where:
+                - Keys are image indices.
+                - Values are dictionaries containing the following numpy arrays:
+                    - 'boxes': Bounding boxes of detected objects.
+                    - 'scores': Confidence scores for each detection.
+                    - 'labels': Predicted class labels for each detection.
         """
+
         self.model.roi_heads.score_thresh = score_thresh
         self.model.roi_heads.nms_thresh = 1 if use_merge else iou_thresh
         self.model.roi_heads.detections_per_img = self.detections_per_patch
         self.model.eval()
-
+        
+        single = isinstance(images, (torch.Tensor, Image, str))
+        images = [images] if single else images
+        
         patcher = Patcher(
             images, self.image_size_factor, self.patch_size, self.patch_overlap
         )
-        dataloader = DataLoader(
-            patcher,
-            batch_size=1,
-            num_workers=0,
-            collate_fn=collate_fn,
-        )
 
         result = {}
-        pbar = tqdm(total=len(images)) if progress_bar else None
+        for patches, patched_images, idx in patcher:
+            predictions = []
+            for b_imgs in torch.split(patched_images, self.patches_per_batch):
+                b_imgs = b_imgs.to(self.device)
+                with torch.autocast(device_type=self.device.type, dtype=torch.float16):
+                    predictions.extend(self.model(b_imgs))
 
-        for batched_patches, batched_images, batched_idxs in dataloader:
-            for patches, imgs, idx in zip(
-                batched_patches, batched_images, batched_idxs
-            ):
-                predictions = []
-                for b_imgs in torch.split(imgs, self.patches_per_batch):
-                    b_imgs = b_imgs.to(self.device)
-                    with torch.autocast(
-                        device_type=self.device.type, dtype=torch.float16
-                    ):
-                        predictions.extend(self.model(b_imgs))
-                predictions = postprocess(
-                    self.image_size_factor,
-                    patches,
-                    predictions,
-                    self.per_image_detections,
-                    iou_thresh,
-                    use_merge=use_merge,
-                )
-                result[idx] = predictions
-            if pbar:
-                pbar.update(len(batched_idxs))
+            predictions = postprocess(
+                self.image_size_factor,
+                patches,
+                predictions,
+                self.per_image_detections,
+                iou_thresh,
+                use_merge=use_merge,
+            )
+            yield {idx: predictions}
 
-        if pbar:
-            pbar.close()
         del patcher
-        del dataloader
-        return result
+    
+    
+    
+    @torch.no_grad()
+    def get_predictions(
+        self, images, iou_thresh, score_thresh, use_merge=True
+    ):
+        """
+        Generate predictions for an image or a set of images using the model.
+
+        This method efficiently processes input images, applies the object detection model,
+        and post-processes the results to produce a dictionary of predictions.
+
+        Args:
+            images (list[Image | torch.Tensor | str] | Dataset | Image | torch.Tensor | str): 
+                The input image(s) to process. Can be a single image or a list of images, 
+                provided as PIL Images, torch Tensors, file paths, or a Dataset.
+            iou_thresh (float): 
+                The Intersection over Union (IoU) threshold used for merging or filtering 
+                overlapping detections.
+            score_thresh (float): 
+                The confidence score threshold used to filter out low-confidence detections.
+            use_merge (bool, optional): 
+                If True, merge overlapping detections using Weighted Boxes Fusion (WBF). 
+                If False, use Non-Maximum Suppression (NMS). Defaults to True.
+
+        Returns:
+            dict[int, dict[str, np.array]]: A dictionary where:
+                - Keys are image ids
+                - Values are dictionaries containing the following numpy arrays:
+                    - 'boxes': Bounding boxes of detected objects.
+                    - 'scores': Confidence scores for each detection.
+                    - 'labels': Predicted class labels for each detection.
+            if a single image provided only single prediction returned (not a dictionary)
+            
+        """
+
+        single = isinstance(images, (torch.Tensor, Image, str))
+        result = {}
+        for pred in self.predict(images, iou_thresh, score_thresh, use_merge):
+            result.update(pred)
+        
+        return result if not single else next(iter(result.values()), None)
