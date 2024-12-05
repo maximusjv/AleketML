@@ -4,7 +4,6 @@ import math
 import os
 
 import PIL
-import numpy as np
 
 import torch
 from torchvision.transforms.v2 import functional as F
@@ -24,8 +23,8 @@ def stats_count(classes, prediction):
 
     Parameters:
         classes (dict[int, str]): A dictionary mapping class IDs to class names.
-        prediction (dict[str, np.array]): A dictionary containing prediction results.
-            Must include 'boxes' and 'labels' keys with corresponding numpy arrays.
+        prediction (dict[str, Tensor]): A dictionary containing prediction results.
+            Must include 'boxes' and 'labels' keys with corresponding Tensors.
 
     Returns:
         dict: A dictionary containing the following keys:
@@ -37,35 +36,109 @@ def stats_count(classes, prediction):
     Note:
         - Area is calculated as an ellipse (pi * width/2 * height/2) for each bounding box.
     """
-    bboxes = np.asarray(prediction["boxes"])
-    labels = np.asarray(prediction["labels"])
+    bboxes = prediction["boxes"]
+    labels = prediction["labels"]
 
-    labels_names = [classes[i] for i in labels]
+    labels_names = [classes[i.item()] for i in labels]
     count = {}
     area = {}
     for class_id, class_name in classes.items():
         if class_name == "background":
             continue  # skip background
-        bboxes_by_class = bboxes[np.where(labels == class_id)]
+        bboxes_by_class = bboxes[torch.where(labels == class_id)]
         count[class_name] = len(bboxes_by_class)
         area[class_name] = (
-            np.sum(
+            torch.sum(
                 (bboxes_by_class[:, 2] - bboxes_by_class[:, 0])
                 / 2.0
                 * (bboxes_by_class[:, 3] - bboxes_by_class[:, 1])
                 / 2.0
-            )
+            ).item()
             * math.pi
             if len(bboxes_by_class) > 0
             else 0
         )
-
     return {
         "bboxes": bboxes.tolist(),
         "labels": labels_names,
         "count": count,
         "area": area,
     }
+
+
+def _save_statistics(stats_writer, image_name, stats, classes):
+    """
+    Saves object detection statistics to a CSV file.
+
+    Args:
+        stats_writer (csv.writer): CSV writer object.
+        image_name (str): Name of the image.
+        stats (dict): Dictionary containing area, count, labels, and bboxes.
+        classes (dict[int, str]): Dictionary mapping class indices to class names.
+    """
+    area = stats["area"]
+    count = stats["count"]
+
+    row = [image_name]
+    row.extend(
+        [
+            int(area[class_name])
+            for class_name in classes.values()
+            if class_name != "background"
+        ]
+    )
+    row.extend(
+        [
+            int(count[class_name])
+            for class_name in classes.values()
+            if class_name != "background"
+        ]
+    )
+    stats_writer.writerow(row)
+
+
+def _save_annotated_image(
+    image,
+    image_name,
+    bboxes,
+    labels,
+    annotated_dir,
+):
+    annotated_image_path = os.path.join(annotated_dir, f"{image_name}_annotated.jpeg")
+    if isinstance(image, str):
+        image = PIL.Image.open(image)
+    if isinstance(image, torch.Tensor):
+        image = F.to_pil_image(image)
+    visualize_bboxes(image, bboxes, labels, save_path=annotated_image_path)
+
+
+def _save_annotations(
+    image_name,
+    bboxes,
+    labels,
+    bboxes_dir,
+):
+    """
+    Saves annotations (bounding boxes and optionally annotated images) to files.
+
+    Args:
+        image (PIL.Image.Image or torch.Tensor or str): Image object, tensor, or path.
+        image_name (str): Name of the image.
+        bboxes (list): List of bounding boxes.
+        labels (list): List of class labels.
+        num_of_annotations_to_save (int): Number of annotations left to save.
+        save_annotated_images (bool): Whether to save annotated images.
+        annotated_dir (str): Directory to save annotated images.
+        bboxes_dir (str): Directory to save bounding boxes.
+    """
+
+    bboxes_file_path = os.path.join(bboxes_dir, f"{image_name}.csv")
+    with open(bboxes_file_path, "w", newline="") as bboxes_file:
+        bboxes_writer = csv.writer(bboxes_file, delimiter=",")
+        headers = ["xmin", "ymin", "xmax", "ymax", "class name"]
+        bboxes_writer.writerow(headers)
+        for (x1, y1, x2, y2), class_name in zip(bboxes, labels):
+            bboxes_writer.writerow([int(x1), int(y1), int(x2), int(y2), class_name])
 
 
 def infer(
@@ -78,7 +151,7 @@ def infer(
     use_merge=True,
     num_of_annotations_to_save=0,
     save_annotated_images=False,
-    progress_bar=False,
+    verbose=False,
 ):
     """
     Performs inference on a list of images and saves the results.
@@ -92,8 +165,9 @@ def infer(
         score_thresh (float): Score threshold for object detection.
         use_merge (bool, optional): Whether to use WBF. Defaults to True.
         num_of_annotations_to_save (int, optional): Number of annotations to save.
-                                                        Defaults to 0.
+            Defaults to 0.
         save_annotated_images (bool, optional): Whether to save annotated images. Defaults to False.
+        verbose (bool, optional): Whether to print infer progress or not. Defaults to False.
     """
 
     if num_of_annotations_to_save == -1:
@@ -105,9 +179,7 @@ def infer(
     stats_file_path = os.path.join(output_dir, "stats.csv")
 
     bboxes_dir = (
-        os.path.join(output_dir, "bboxes")
-        if num_of_annotations_to_save > 0
-        else None
+        os.path.join(output_dir, "bboxes") if num_of_annotations_to_save > 0 else None
     )
     if bboxes_dir:
         os.makedirs(bboxes_dir, exist_ok=True)
@@ -138,60 +210,41 @@ def infer(
             ]
         )
         stats_writer.writerow(headers)
-        predictions = predictor.get_predictions(
-            images, iou_thresh, score_thresh, use_merge, progress_bar
-        )
-        for idx, pred in predictions.items():
+        
+        for idx, image in enumerate(images):
             image = images[idx]
             image_name = os.path.basename(image) if isinstance(image, str) else str(idx)
-            stats = stats_count(classes, pred)
+            try: 
+                pred = predictor.predict(
+                    image,
+                    iou_thresh,
+                    score_thresh,
+                    use_merge
+                )
+    
+                stats = stats_count(classes, pred)
 
-            area = stats["area"]
-            count = stats["count"]
-            labels = stats["labels"]
-            bboxes = stats["bboxes"]
+                _save_statistics(stats_writer, image_name, stats, classes)
 
-            row = [image_name]
-            row.extend(
-                [
-                    int(area[class_name])
-                    for class_name in classes.values()
-                    if class_name != "background"
-                ]
-            )
-            row.extend(
-                [
-                    int(count[class_name])
-                    for class_name in classes.values()
-                    if class_name != "background"
-                ]
-            )
-            stats_writer.writerow(row)
-
-            if num_of_annotations_to_save > 0:
-                num_of_annotations_to_save -= 1
-
-                if save_annotated_images:
-                    annotated_image_path = os.path.join(
-                        annotated_dir, f"{image_name}_annotated.jpeg"
+                if num_of_annotations_to_save > 0:
+                    _save_annotations(
+                        image_name,
+                        stats["bboxes"],
+                        stats["labels"],
+                        bboxes_dir,
                     )
-                    if isinstance(image, str):
-                        image = PIL.Image.open(image)
-                    if isinstance(image, torch.Tensor):
-                        image = F.to_pil_image(image)
-                    visualize_bboxes(
-                        image, bboxes, labels, save_path=annotated_image_path
+                    _save_annotated_image(
+                        image,
+                        image_name,
+                        stats["bboxes"],
+                        stats["labels"],
+                        annotated_dir,
                     )
-
-                bboxes_file_path = os.path.join(bboxes_dir, f"{image_name}.csv")
-                with open(bboxes_file_path, "w", newline="") as bboxes_file:
-                    bboxes_writer = csv.writer(bboxes_file, delimiter=",")
-                    headers = ["xmin", "ymin", "xmax", "ymax", "class name"]
-                    bboxes_writer.writerow(headers)
-                    for (x1, y1, x2, y2), class_name in zip(bboxes, labels):
-                        bboxes_writer.writerow(
-                            [int(x1), int(y1), int(x2), int(y2), class_name]
-                        )
+                    num_of_annotations_to_save -= 1
+            except Exception:
+                print(f"Unexcpected error occured: ")
+                
+                
 
 
 def load_model(model_path, device):
@@ -206,7 +259,8 @@ def load_model(model_path, device):
     """
     model = get_default_model(device)
     model.load_state_dict(torch.load(model_path, weights_only=True))
-    return model 
+    return model
+
 
 def load_pathes(path):
     """

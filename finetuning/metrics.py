@@ -1,11 +1,53 @@
-import numpy as np
 
-from torch import Tensor
-
-from utils.box_utils import match_gts_dts, box_area
+from torchvision import ops
+import torch
 from utils.consts import VALIDATION_METRICS
 
+@torch.no_grad()
+def match_gts_dts(gts, dts, iou_thresh):
+    """
+    Matches ground truth (GT) boxes to detected (DT) boxes based on IoU.
 
+    Args:
+        gts (np.ndarray): An array of shape (N, 4) representing ground truth boxes.
+        dts (np.ndarray): An array of shape (M, 4) representing detected boxes.
+        iou_thresh (float): The IoU threshold used for matching.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: A tuple containing two arrays:
+                                        - gt_matches: A binary array of shape (N,) indicating
+                                                        whether each GT box has a match (1) or not (0).
+                                        - dt_matches: A binary array of shape (M,) indicating
+                                                        whether each DT box has a match (1) or not (0).
+    """
+    iou_matrix = ops.box_iou(dts, gts)
+
+    # Initialize matches
+    dt_matches = torch.zeros(len(dts))
+    gt_matches = torch.zeros(len(gts))
+
+    for dind, _ in enumerate(dts):
+        iou = iou_thresh
+        match = -1
+        for gind, _ in enumerate(gts):
+            # If GT already matched
+            if gt_matches[gind] != 0:
+                continue
+            # Continue to next GT unless better match made
+            if iou_matrix[dind, gind] < iou:
+                continue
+            # If match successful and best so far, store appropriately
+            iou = iou_matrix[dind, gind]
+            match = gind
+
+        if match != -1:
+            dt_matches[dind] = 1
+            gt_matches[match] = 1
+
+    return gt_matches, dt_matches
+
+
+@torch.no_grad()
 def prepare_gts(annots):
     """Prepares ground truth data for evaluation.
 
@@ -25,28 +67,21 @@ def prepare_gts(annots):
     image_ids = set()
     for target in annots:
         img_id = target["image_id"]
-        labels = (
-            target["labels"].numpy(force=True)
-            if isinstance(target["labels"], Tensor)
-            else np.asarray(target["labels"])
-        )
-        bbox = (
-            target["boxes"].numpy(force=True)
-            if isinstance(target["boxes"], Tensor)
-            else np.asarray(target["boxes"])
-        )
+        labels = torch.as_tensor(target["labels"]).cpu()
+        bbox = torch.as_tensor(target["boxes"]).cpu()
+   
 
         image_ids.add(img_id)
         categories.update(labels.tolist())
 
         for label in categories:
-            ind = np.where(labels == label)
+            ind = torch.where(labels == label)
             if len(bbox[ind]) != 0:
                 gts[img_id, label] = bbox[ind]
 
     return gts, sorted(image_ids), sorted(categories)
 
-
+@torch.no_grad()
 def prepare_dts(predictions):
     """Prepares detection results for evaluation.
 
@@ -65,40 +100,28 @@ def prepare_dts(predictions):
     categories = set()
 
     for img_id, preds in predictions.items():
-        labels = (
-            preds["labels"].numpy(force=True)
-            if isinstance(preds["labels"], Tensor)
-            else np.asarray(preds["labels"])
-        )
-        bbox = (
-            preds["boxes"].numpy(force=True)
-            if isinstance(preds["boxes"], Tensor)
-            else np.asarray(preds["boxes"])
-        )
-        scores = (
-            preds["scores"].numpy(force=True)
-            if isinstance(preds["scores"], Tensor)
-            else np.asarray(preds["scores"])
-        )
+        labels = torch.as_tensor(preds["labels"]).cpu()
+        bbox = torch.as_tensor(preds["boxes"]).cpu()
+        scores = torch.as_tensor(preds["scores"]).cpu()
 
         categories.update(labels.tolist())
 
         for cat in categories:
 
-            ind = np.where(labels == cat)
+            ind = torch.where(labels == cat)
             bbox_filtered = bbox[ind]
             scores_filtered = scores[ind]
 
-            ind = np.argsort(
-                -scores_filtered, kind="mergesort"
-            )  # sort detections by score
+            ind = torch.argsort(
+                scores_filtered, descending=True
+            )  
 
             if len(bbox_filtered[ind]) != 0:
                 dts[img_id, cat] = bbox_filtered[ind], scores_filtered[ind]
 
     return dts
 
-
+@torch.no_grad()
 def pr_eval(gt_matches, dt_matches, dt_scores, recall_thrs):
     """
     Calculates precision-recall curve and related metrics.
@@ -121,23 +144,23 @@ def pr_eval(gt_matches, dt_matches, dt_scores, recall_thrs):
             - 'F1': The F1 score.
             - 'pr_curve': The precision-recall curve as a NumPy array.
     """
-    inds = np.argsort(-dt_scores, kind="mergesort")
+    inds = torch.argsort(dt_scores,descending=True)
     dt_matches = dt_matches[inds]
 
-    tps = np.cumsum(dt_matches, axis=0, dtype=float)
-    fps = np.cumsum(np.logical_not(dt_matches), axis=0, dtype=float)
+    tps = torch.cumsum(dt_matches, axis=0, dtype=float)
+    fps = torch.cumsum(torch.logical_not(dt_matches), axis=0, dtype=float)
 
     rc = tps / len(gt_matches)
-    pr = tps / (fps + tps + np.spacing(1))
+    pr = tps / (fps + tps + 1e-7)
 
     pr_interpolated = pr.tolist()
     # Interpolate precision
     for i in range(len(pr_interpolated) - 1, 0, -1):
         if pr_interpolated[i] > pr_interpolated[i - 1]:
             pr_interpolated[i - 1] = pr_interpolated[i]
-
-    inds = np.searchsorted(pr_interpolated, recall_thrs, side="left")
-    pr_curve = np.zeros(len(recall_thrs)).tolist()
+            
+    inds = torch.searchsorted(torch.as_tensor(pr_interpolated), recall_thrs)
+    pr_curve = torch.zeros(len(recall_thrs))
 
     for ri, pi in enumerate(inds):
         pr_curve[ri] = pr_interpolated[pi] if pi < len(pr_interpolated) else 0
@@ -145,9 +168,9 @@ def pr_eval(gt_matches, dt_matches, dt_scores, recall_thrs):
     R = rc[-1] if len(rc) > 0 else 0
     P = pr[-1] if len(pr) > 0 else 0
     F1 = 2 * P * R / (P + R) if P + R > 0 else 0
-    return {"R": R, "P": P, "F1": F1, "pr_curve": np.array(pr_curve)}
+    return {"R": R, "P": P, "F1": F1, "pr_curve": pr_curve}
 
-
+@torch.no_grad()
 def area_relative_diff(gt, dt):
     """
     Calculates the relative difference in area between ground truth and detected bounding boxes.
@@ -160,12 +183,12 @@ def area_relative_diff(gt, dt):
         float: The relative difference in area. A positive value indicates that the detected area
                 is larger than the ground truth area, while a negative value indicates the opposite.
     """
-    gt_area = box_area(gt).sum()
-    dt_area = box_area(dt).sum()
+    gt_area = ops.box_area(gt).sum()
+    dt_area = ops.box_area(dt).sum()
     mean = (gt_area + dt_area) / 2.0
     return (dt_area - gt_area) / mean if mean != 0 else 0
 
-
+@torch.no_grad()
 def count_relative_diff(gt, dt):
     """
     Calculates the relative difference in count between ground truth and detected bounding boxes.
@@ -199,11 +222,12 @@ class Evaluator:
         """
         (self.gts, self.images_id, self.categories) = prepare_gts(annots)
 
-        self.recall_thrs = np.linspace(0.0, 1.00, 101)
+        self.recall_thrs = torch.linspace(0.0, 1.00, 101)
         self.iou_thresh = 0.5
 
         self.eval_res = {}
-
+        
+    @torch.no_grad()
     def quantitative_eval(self, dts):
         """
         Performs quantitative evaluation of detection results.
@@ -228,19 +252,20 @@ class Evaluator:
         I = len(self.images_id)
         K = len(self.categories)
 
-        AD = np.zeros((K, I))
-        CD = np.zeros((K, I))
+        AD = torch.zeros((K, I))
+        CD = torch.zeros((K, I))
 
         for c, cat in enumerate(self.categories):
             for i, image_id in enumerate(self.images_id):
-                gt = self.gts.get((image_id, cat), np.empty((0, 4)))
-                dt, score = dts.get((image_id, cat), (np.empty((0, 4)), np.empty(0)))
+                gt = self.gts.get((image_id, cat), torch.empty((0, 4)))
+                dt, score = dts.get((image_id, cat), (torch.empty((0, 4)), torch.empty(0)))
 
                 AD[c, i] = area_relative_diff(gt, dt)
                 CD[c, i] = count_relative_diff(gt, dt)
 
         return {"AD": AD, "CD": CD}
-
+    
+    @torch.no_grad()
     def pr_eval(self, dts):
         """
         Evaluates precision-recall metrics for object detection results.
@@ -264,10 +289,10 @@ class Evaluator:
         K = len(self.categories)
         R = len(self.recall_thrs)
 
-        pr_curve = np.zeros((K, R))
-        precision = np.zeros((K,))
-        recall = np.zeros((K,))
-        F1 = np.zeros((K,))
+        pr_curve = torch.zeros((K, R))
+        precision = torch.zeros((K,))
+        recall = torch.zeros((K,))
+        F1 = torch.zeros((K,))
 
         for c, cat in enumerate(self.categories):
             gt_matches = []
@@ -276,13 +301,13 @@ class Evaluator:
 
             for image_id in self.images_id:
 
-                gt = self.gts.get((image_id, cat), np.empty((0, 4)))
-                dt, score = dts.get((image_id, cat), (np.empty((0, 4)), np.empty(0)))
+                gt = self.gts.get((image_id, cat), torch.empty((0, 4)))
+                dt, score = dts.get((image_id, cat), (torch.empty((0, 4)), torch.empty(0)))
 
                 if len(dt) == 0 and len(gt) == 0:
                     continue
 
-                gt_match, dt_match = np.zeros(len(gt)), np.zeros(len(dt))
+                gt_match, dt_match = torch.zeros(len(gt)), torch.zeros(len(dt))
                 if len(gt) != 0 and len(dt) != 0:
                     gt_match, dt_match = match_gts_dts(gt, dt, self.iou_thresh)
 
@@ -290,9 +315,9 @@ class Evaluator:
                 dt_matches.extend(dt_match)
                 dt_scores.extend(score)
 
-            gt_matches = np.array(gt_matches)
-            dt_matches = np.array(dt_matches)
-            dt_scores = np.array(dt_scores)
+            gt_matches = torch.as_tensor(gt_matches)
+            dt_matches = torch.as_tensor(dt_matches)
+            dt_scores = torch.as_tensor(dt_scores)
 
             pr_res = pr_eval(gt_matches, dt_matches, dt_scores, self.recall_thrs)
             pr_curve[c] = pr_res["pr_curve"]
@@ -306,7 +331,7 @@ class Evaluator:
             "recall": recall,
             "F1": F1,
         }
-
+    @torch.no_grad()
     def eval(self, dts):
         """
         Evaluates the detection results and calculates various metrics.
@@ -345,10 +370,10 @@ class Evaluator:
         AD = q_results["AD"]
         CD = q_results["CD"]
 
-        AP = np.mean(pr_curve)
-        R = np.mean(recall)
-        P = np.mean(precision)
-        F1 = np.mean(F1)
+        AP = torch.mean(pr_curve).item()
+        R = torch.mean(recall).item()
+        P = torch.mean(precision).item()
+        F1 = torch.mean(F1).item()
 
         self.eval_res = {
             "pr_curve": pr_curve,
@@ -358,5 +383,5 @@ class Evaluator:
             "quantitative_results": q_results,
         }
 
-        metrics = [AP, R, P, F1, np.abs(AD).mean(), np.abs(CD).mean()]
+        metrics = [AP, R, P, F1, torch.abs(AD).mean().item(), torch.abs(CD).mean().item()]
         return dict(zip(VALIDATION_METRICS, metrics))

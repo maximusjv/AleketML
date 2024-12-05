@@ -3,7 +3,7 @@ import os
 
 import numpy as np
 
-from utils.box_utils import box_area, box_iou
+from utils.patches import box_area, box_iou
 from utils.consts import NUM_TO_CLASSES
 
 
