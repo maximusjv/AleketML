@@ -47,12 +47,13 @@ def wbf(boxes, scores, labels, iou_threshold):
             iou = ops.box_iou(current_box[torch.newaxis, ...], merged_box[torch.newaxis, ...])[0, 0]
             if iou > iou_threshold:
                 found = True
-
+                
+              
                 cluster_boxes[i].append(current_box)
                 cluster_scores[i].append(current_score)
-
-                matched_boxes = torch.as_tensor(cluster_boxes[i])
-                matched_scores = torch.as_tensor(cluster_scores[i])
+                
+                matched_boxes = torch.stack(cluster_boxes[i])
+                matched_scores = torch.stack(cluster_scores[i])
 
                 # Merge boxes using weighted average
                 merged_boxes[i] = (matched_boxes * matched_scores[:, torch.newaxis]).sum(
@@ -69,7 +70,7 @@ def wbf(boxes, scores, labels, iou_threshold):
             cluster_boxes.append([current_box])
             cluster_scores.append([current_score])
 
-    return torch.as_tensor(merged_boxes), torch.as_tensor(merged_scores), torch.as_tensor(merged_labels)
+    return torch.stack(merged_boxes), torch.stack(merged_scores), torch.stack(merged_labels)
 
 
 def batched_wbf(boxes, scores, labels, iou_threshold):

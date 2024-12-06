@@ -1,7 +1,7 @@
-
 from torchvision import ops
 import torch
 from utils.consts import VALIDATION_METRICS
+
 
 @torch.no_grad()
 def match_gts_dts(gts, dts, iou_thresh):
@@ -20,29 +20,31 @@ def match_gts_dts(gts, dts, iou_thresh):
                                         - dt_matches: A binary array of shape (M,) indicating
                                                         whether each DT box has a match (1) or not (0).
     """
-    iou_matrix = ops.box_iou(dts, gts)
+    # It is assumed that dts are already sorted by score in descending order
+    
+    iou_matrix = ops.box_iou(dts, gts)  # Calculatate IoU of each box pair
 
     # Initialize matches
     dt_matches = torch.zeros(len(dts))
     gt_matches = torch.zeros(len(gts))
 
-    for dind, _ in enumerate(dts):
-        iou = iou_thresh
-        match = -1
-        for gind, _ in enumerate(gts):
-            # If GT already matched
-            if gt_matches[gind] != 0:
+    for dt_index in range(len(dts)):
+        iou = iou_thresh  # Init the threshold
+        best_match = -1
+        for gt_index in range(len(gts)):
+            # Ignore if GT already matched
+            if gt_matches[gt_index] != 0:
                 continue
             # Continue to next GT unless better match made
-            if iou_matrix[dind, gind] < iou:
+            if iou_matrix[dt_index, gt_index] < iou:
                 continue
             # If match successful and best so far, store appropriately
-            iou = iou_matrix[dind, gind]
-            match = gind
+            iou = iou_matrix[dt_index, gt_index]
+            best_match = gt_index
 
-        if match != -1:
-            dt_matches[dind] = 1
-            gt_matches[match] = 1
+        if best_match != -1:
+            dt_matches[dt_index] = 1
+            gt_matches[best_match] = 1
 
     return gt_matches, dt_matches
 
@@ -69,7 +71,6 @@ def prepare_gts(annots):
         img_id = target["image_id"]
         labels = torch.as_tensor(target["labels"]).cpu()
         bbox = torch.as_tensor(target["boxes"]).cpu()
-   
 
         image_ids.add(img_id)
         categories.update(labels.tolist())
@@ -80,6 +81,7 @@ def prepare_gts(annots):
                 gts[img_id, label] = bbox[ind]
 
     return gts, sorted(image_ids), sorted(categories)
+
 
 @torch.no_grad()
 def prepare_dts(predictions):
@@ -112,17 +114,16 @@ def prepare_dts(predictions):
             bbox_filtered = bbox[ind]
             scores_filtered = scores[ind]
 
-            ind = torch.argsort(
-                scores_filtered, descending=True
-            )  
+            ind = torch.argsort(scores_filtered, descending=True)
 
             if len(bbox_filtered[ind]) != 0:
                 dts[img_id, cat] = bbox_filtered[ind], scores_filtered[ind]
 
     return dts
 
+
 @torch.no_grad()
-def pr_eval(gt_matches, dt_matches, dt_scores, recall_thrs):
+def pr_eval(gt_matches, dt_matches, recall_thrs):
     """
     Calculates precision-recall curve and related metrics.
 
@@ -131,10 +132,9 @@ def pr_eval(gt_matches, dt_matches, dt_scores, recall_thrs):
 
     Args:
         gt_matches (np.ndarray): A NumPy array of boolean values indicating
-                                    which ground truth objects were matched.
+                                  which ground truth objects were matched.
         dt_matches (np.ndarray): A NumPy array of boolean values indicating
-                                    which detected objects were matched.
-        dt_scores (np.ndarray): A NumPy array of detection confidence scores.
+                                  which detected objects were matched.
         recall_thrs (np.ndarray): A NumPy array of recall thresholds.
 
     Returns:
@@ -144,31 +144,37 @@ def pr_eval(gt_matches, dt_matches, dt_scores, recall_thrs):
             - 'F1': The F1 score.
             - 'pr_curve': The precision-recall curve as a NumPy array.
     """
-    inds = torch.argsort(dt_scores,descending=True)
-    dt_matches = dt_matches[inds]
 
-    tps = torch.cumsum(dt_matches, axis=0, dtype=float)
-    fps = torch.cumsum(torch.logical_not(dt_matches), axis=0, dtype=float)
+    # It is assumed that dt_matches are already sorted by score in descending order
 
-    rc = tps / len(gt_matches)
-    pr = tps / (fps + tps + 1e-7)
+    # Calculate cumulative true positives (tps) and false positives (fps)
+    tps = torch.cumsum(dt_matches, axis=0, dtype=float)  
+    fps = torch.cumsum(torch.logical_not(dt_matches), axis=0, dtype=float) 
 
+    # Calculate recall (rc) and precision (pr)
+    rc = tps / len(gt_matches)  
+    pr = tps / (fps + tps + 1e-7)  # Add a small value to avoid division by zero
+
+    # Interpolate precision to ensure it's non-increasing to avoid jaggedness 
     pr_interpolated = pr.tolist()
-    # Interpolate precision
     for i in range(len(pr_interpolated) - 1, 0, -1):
         if pr_interpolated[i] > pr_interpolated[i - 1]:
             pr_interpolated[i - 1] = pr_interpolated[i]
-            
+
+    # Calculate precision at each recall threshold
     inds = torch.searchsorted(torch.as_tensor(pr_interpolated), recall_thrs)
     pr_curve = torch.zeros(len(recall_thrs))
 
     for ri, pi in enumerate(inds):
         pr_curve[ri] = pr_interpolated[pi] if pi < len(pr_interpolated) else 0
 
+    # Calculate final recall, precision, and F1 score
     R = rc[-1] if len(rc) > 0 else 0
     P = pr[-1] if len(pr) > 0 else 0
     F1 = 2 * P * R / (P + R) if P + R > 0 else 0
+
     return {"R": R, "P": P, "F1": F1, "pr_curve": pr_curve}
+
 
 @torch.no_grad()
 def area_relative_diff(gt, dt):
@@ -187,6 +193,7 @@ def area_relative_diff(gt, dt):
     dt_area = ops.box_area(dt).sum()
     mean = (gt_area + dt_area) / 2.0
     return (dt_area - gt_area) / mean if mean != 0 else 0
+
 
 @torch.no_grad()
 def count_relative_diff(gt, dt):
@@ -226,7 +233,7 @@ class Evaluator:
         self.iou_thresh = 0.5
 
         self.eval_res = {}
-        
+
     @torch.no_grad()
     def quantitative_eval(self, dts):
         """
@@ -258,13 +265,15 @@ class Evaluator:
         for c, cat in enumerate(self.categories):
             for i, image_id in enumerate(self.images_id):
                 gt = self.gts.get((image_id, cat), torch.empty((0, 4)))
-                dt, score = dts.get((image_id, cat), (torch.empty((0, 4)), torch.empty(0)))
+                dt, score = dts.get(
+                    (image_id, cat), (torch.empty((0, 4)), torch.empty(0))
+                )
 
                 AD[c, i] = area_relative_diff(gt, dt)
                 CD[c, i] = count_relative_diff(gt, dt)
 
         return {"AD": AD, "CD": CD}
-    
+
     @torch.no_grad()
     def pr_eval(self, dts):
         """
@@ -302,7 +311,9 @@ class Evaluator:
             for image_id in self.images_id:
 
                 gt = self.gts.get((image_id, cat), torch.empty((0, 4)))
-                dt, score = dts.get((image_id, cat), (torch.empty((0, 4)), torch.empty(0)))
+                dt, score = dts.get(
+                    (image_id, cat), (torch.empty((0, 4)), torch.empty(0))
+                )
 
                 if len(dt) == 0 and len(gt) == 0:
                     continue
@@ -331,6 +342,7 @@ class Evaluator:
             "recall": recall,
             "F1": F1,
         }
+
     @torch.no_grad()
     def eval(self, dts):
         """
@@ -383,5 +395,12 @@ class Evaluator:
             "quantitative_results": q_results,
         }
 
-        metrics = [AP, R, P, F1, torch.abs(AD).mean().item(), torch.abs(CD).mean().item()]
+        metrics = [
+            AP,
+            R,
+            P,
+            F1,
+            torch.abs(AD).mean().item(),
+            torch.abs(CD).mean().item(),
+        ]
         return dict(zip(VALIDATION_METRICS, metrics))
