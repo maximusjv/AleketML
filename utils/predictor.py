@@ -4,7 +4,7 @@ from PIL.Image import Image
 import torch
 import torchvision.ops as ops
 
-from utils.patches import box_iou, make_patches
+from utils.patches import make_patches
 
 import torchvision.transforms.v2.functional as F
 from PIL.Image import Image
@@ -44,7 +44,7 @@ def wbf(boxes, scores, labels, iou_threshold):
         found = False
 
         for i, merged_box in enumerate(merged_boxes):
-            iou = box_iou(current_box[torch.newaxis, ...], merged_box[torch.newaxis, ...])[0, 0]
+            iou = ops.box_iou(current_box[torch.newaxis, ...], merged_box[torch.newaxis, ...])[0, 0]
             if iou > iou_threshold:
                 found = True
 
