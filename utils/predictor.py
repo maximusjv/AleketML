@@ -1,3 +1,4 @@
+import PIL
 from PIL.Image import Image
 import numpy as np
 
@@ -5,8 +6,14 @@ import torch
 import torchvision.ops as ops
 
 from utils.box_utils import box_iou
-from utils.patcher import Patcher
+from utils.patches import make_patches
 
+import torch
+import torchvision.ops as ops
+
+import torchvision.transforms.v2.functional as F
+from PIL.Image import Image
+from torch.utils.data import Dataset
 
 def wbf(boxes, scores, labels, iou_threshold):
     """
@@ -185,6 +192,38 @@ def postprocess(
 
     return {"boxes": boxes, "scores": scores, "labels": labels}
 
+@torch.no_grad()
+def preprocess(
+    size_factor, 
+    patch_size,
+    patch_overlap,
+    image):
+
+    if isinstance(image, str):
+        image = PIL.Image.open(image)
+
+    if isinstance(image, Image):
+        image = F.to_image(image)
+
+    ht, wd = image.shape[-2:]
+    ht = int(ht * size_factor)
+    wd = int(wd * size_factor)
+
+    padded_width, padded_height, patches = make_patches(
+        wd, ht, patch_size, patch_overlap
+    )
+
+    image = F.resize(image, size=[ht, wd])
+    image = F.pad(
+        image, padding=[0, 0, padded_width - wd, padded_height - ht], fill=0.0
+    )
+    image = F.to_dtype(image, dtype=torch.float32, scale=True)
+
+    patched_images = torch.stack(
+        [F.crop(image, y1, x1, y2 - y1, x2 - x1) for (x1, y1, x2, y2) in patches]
+    )
+
+    return patches, patched_images
 
 class Predictor:
 
@@ -228,18 +267,17 @@ class Predictor:
 
     @torch.no_grad()
     def predict(
-        self, images, iou_thresh, score_thresh, use_merge=True
+        self, image, iou_thresh, score_thresh, use_merge=True
     ):
         """
         Generate predictions for an image or a set of images using the model.
 
-        This method efficiently processes input images, applies the object detection model,
-        and post-processes the results to produce a generator of predictions.
+        This method efficiently processes input image, applies the object detection model,
+        and post-processes the results to produce predictions.
 
         Args:
-            images (list[Image | torch.Tensor | str] | Dataset | Image | torch.Tensor | str): 
-                The input image(s) to process. Can be a single image or a list of images, 
-                provided as PIL Images, torch Tensors, file paths, or a Dataset.
+            image (Image | torch.Tensor | str): 
+                The input image. Provided as PIL Image, torch Tensor or a file path.
             iou_thresh (float): 
                 The Intersection over Union (IoU) threshold used for merging or filtering 
                 overlapping detections.
@@ -249,13 +287,11 @@ class Predictor:
                 If True, merge overlapping detections using Weighted Boxes Fusion (WBF). 
                 If False, use Non-Maximum Suppression (NMS). Defaults to True.
 
-        Yields:
-            dict[int, dict[str, np.array]]: A dictionary where:
-                - Keys are image indices.
-                - Values are dictionaries containing the following numpy arrays:
-                    - 'boxes': Bounding boxes of detected objects.
-                    - 'scores': Confidence scores for each detection.
-                    - 'labels': Predicted class labels for each detection.
+        Returns:
+            dict[str, np.array]: A dictionary where:
+                - 'boxes': Bounding boxes of detected objects.
+                - 'scores': Confidence scores for each detection.
+                - 'labels': Predicted class labels for each detection.
         """
 
         self.model.roi_heads.score_thresh = score_thresh
@@ -263,33 +299,25 @@ class Predictor:
         self.model.roi_heads.detections_per_img = self.detections_per_patch
         self.model.eval()
         
-        single = isinstance(images, (torch.Tensor, Image, str))
-        images = [images] if single else images
+        result = {}
         
-        patcher = Patcher(
-            images, self.image_size_factor, self.patch_size, self.patch_overlap
+        predictions = []
+        patches, patched_images = preprocess(self.image_size_factor, self.patch_size, self.patch_overlap, image)
+        for b_imgs in torch.split(patched_images, self.patches_per_batch):
+            b_imgs = b_imgs.to(self.device)
+            with torch.autocast(device_type=self.device.type, dtype=torch.float16):
+                predictions.extend(self.model(b_imgs))
+
+        predictions = postprocess(
+            self.image_size_factor,
+            patches,
+            predictions,
+            self.per_image_detections,
+            iou_thresh,
+            use_merge=use_merge,
         )
 
-        result = {}
-        for patches, patched_images, idx in patcher:
-            predictions = []
-            for b_imgs in torch.split(patched_images, self.patches_per_batch):
-                b_imgs = b_imgs.to(self.device)
-                with torch.autocast(device_type=self.device.type, dtype=torch.float16):
-                    predictions.extend(self.model(b_imgs))
-
-            predictions = postprocess(
-                self.image_size_factor,
-                patches,
-                predictions,
-                self.per_image_detections,
-                iou_thresh,
-                use_merge=use_merge,
-            )
-            yield {idx: predictions}
-
-        del patcher
-    
+        return predictions
     
     
     @torch.no_grad()
@@ -327,8 +355,15 @@ class Predictor:
         """
 
         single = isinstance(images, (torch.Tensor, Image, str))
+        images = [images] if single else images
         result = {}
-        for pred in self.predict(images, iou_thresh, score_thresh, use_merge):
-            result.update(pred)
+        
+        for idx, image in enumerate(images):
+            if isinstance(images, Dataset):
+                image, target = image
+                idx = target["image_id"]
+                
+            predictions = self.predict(image, iou_thresh, score_thresh, use_merge)
+            result[idx] = predictions
         
         return result if not single else next(iter(result.values()), None)

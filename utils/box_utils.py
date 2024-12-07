@@ -85,28 +85,31 @@ def match_gts_dts(gts, dts, iou_thresh):
                                         - dt_matches: A binary array of shape (M,) indicating
                                                         whether each DT box has a match (1) or not (0).
     """
-    iou_matrix = box_iou(dts, gts)
+    # It is assumed that dts are already sorted by score in descending order
+    iou_matrix = box_iou(dts, gts)  # Calculatate IoU of each box pair
+
 
     # Initialize matches
     dt_matches = np.zeros(len(dts))
     gt_matches = np.zeros(len(gts))
-
-    for dind, _ in enumerate(dts):
-        iou = iou_thresh
-        match = -1
-        for gind, _ in enumerate(gts):
-            # If GT already matched
-            if gt_matches[gind] != 0:
+    
+    for dt_index in range(len(dts)):
+        iou = iou_thresh  # Init the threshold
+        best_match = -1
+        for gt_index in range(len(gts)):
+            # Ignore if GT already matched
+            if gt_matches[gt_index] != 0:
                 continue
             # Continue to next GT unless better match made
-            if iou_matrix[dind, gind] < iou:
+            if iou_matrix[dt_index, gt_index] < iou:
                 continue
             # If match successful and best so far, store appropriately
-            iou = iou_matrix[dind, gind]
-            match = gind
+            iou = iou_matrix[dt_index, gt_index]
+            best_match = gt_index
 
-        if match != -1:
-            dt_matches[dind] = 1
-            gt_matches[match] = 1
-
+        if best_match != -1:
+            dt_matches[dt_index] = 1
+            gt_matches[best_match] = 1
+            
     return gt_matches, dt_matches
+

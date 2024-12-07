@@ -108,10 +108,9 @@ def pr_eval(gt_matches, dt_matches, dt_scores, recall_thrs):
 
     Args:
         gt_matches (np.ndarray): A NumPy array of boolean values indicating
-                                    which ground truth objects were matched.
+                                  which ground truth objects were matched.
         dt_matches (np.ndarray): A NumPy array of boolean values indicating
-                                    which detected objects were matched.
-        dt_scores (np.ndarray): A NumPy array of detection confidence scores.
+                                  which detected objects were matched.
         recall_thrs (np.ndarray): A NumPy array of recall thresholds.
 
     Returns:
@@ -121,30 +120,38 @@ def pr_eval(gt_matches, dt_matches, dt_scores, recall_thrs):
             - 'F1': The F1 score.
             - 'pr_curve': The precision-recall curve as a NumPy array.
     """
-    inds = np.argsort(-dt_scores, kind="mergesort")
-    dt_matches = dt_matches[inds]
 
-    tps = np.cumsum(dt_matches, axis=0, dtype=float)
-    fps = np.cumsum(np.logical_not(dt_matches), axis=0, dtype=float)
+    ind = np.argsort(
+                -dt_scores, kind="mergesort"
+            )  # sort detections by score in descending order
+    dt_matches = dt_matches[ind]
+    
+    # Calculate cumulative true positives (tps) and false positives (fps)
+    tps = np.cumsum(dt_matches, axis=0, dtype=float)  
+    fps = np.cumsum(np.logical_not(dt_matches), axis=0, dtype=float) 
 
-    rc = tps / len(gt_matches)
-    pr = tps / (fps + tps + np.spacing(1))
+    # Calculate recall (rc) and precision (pr)
+    rc = tps / len(gt_matches)  
+    pr = tps / (fps + tps + np.spacing(1))  # Add a small value to avoid division by zero
 
+    # Interpolate precision to ensure it's non-increasing to avoid jaggedness 
     pr_interpolated = pr.tolist()
-    # Interpolate precision
     for i in range(len(pr_interpolated) - 1, 0, -1):
         if pr_interpolated[i] > pr_interpolated[i - 1]:
             pr_interpolated[i - 1] = pr_interpolated[i]
 
+    # Calculate precision at each recall threshold
     inds = np.searchsorted(pr_interpolated, recall_thrs, side="left")
     pr_curve = np.zeros(len(recall_thrs)).tolist()
 
     for ri, pi in enumerate(inds):
         pr_curve[ri] = pr_interpolated[pi] if pi < len(pr_interpolated) else 0
 
+    # Calculate final recall, precision, and F1 score
     R = rc[-1] if len(rc) > 0 else 0
     P = pr[-1] if len(pr) > 0 else 0
     F1 = 2 * P * R / (P + R) if P + R > 0 else 0
+
     return {"R": R, "P": P, "F1": F1, "pr_curve": np.array(pr_curve)}
 
 
@@ -234,7 +241,7 @@ class Evaluator:
         for c, cat in enumerate(self.categories):
             for i, image_id in enumerate(self.images_id):
                 gt = self.gts.get((image_id, cat), np.empty((0, 4)))
-                dt, score = dts.get((image_id, cat), (np.empty((0, 4)), np.empty(0)))
+                dt, _ = dts.get((image_id, cat), (np.empty((0, 4)), np.empty(0)))
 
                 AD[c, i] = area_relative_diff(gt, dt)
                 CD[c, i] = count_relative_diff(gt, dt)
@@ -294,6 +301,7 @@ class Evaluator:
             dt_matches = np.array(dt_matches)
             dt_scores = np.array(dt_scores)
 
+            
             pr_res = pr_eval(gt_matches, dt_matches, dt_scores, self.recall_thrs)
             pr_curve[c] = pr_res["pr_curve"]
             precision[c] = pr_res["P"]

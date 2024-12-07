@@ -22,7 +22,7 @@ For more details: https://developer.nvidia.com/cuda-toolkit
 ## Usage
 
 ```bash
-python infer.py <model_path> <images_path> [options]
+python infer_run.py <model_path> <images_path> [options]
 ```
 
 ### Required Arguments
