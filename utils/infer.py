@@ -38,8 +38,8 @@ def stats_count(classes, prediction):
     Note:
         - Area is calculated as an ellipse (pi * width/2 * height/2) for each bounding box.
     """
-    bboxes = np.asarray(prediction["boxes"])
-    labels = np.asarray(prediction["labels"])
+    bboxes = prediction["boxes"].numpy(force=True)
+    labels = prediction["labels"].numpy(force=True)
 
     labels_names = [classes[i] for i in labels]
     count = {}
