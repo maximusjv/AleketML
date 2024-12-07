@@ -1,15 +1,19 @@
+import argparse
 import csv
 import math
 import os
 
 import PIL
+import numpy as np
 
 import torch
 from torchvision.transforms.v2 import functional as F
 from tqdm import tqdm
 
 from finetuning.checkpoints import get_default_model
+from utils.consts import NUM_TO_CLASSES
 from utils.visualize import visualize_bboxes
+from utils.predictor import Predictor
 
 
 def stats_count(classes, prediction):
@@ -21,8 +25,8 @@ def stats_count(classes, prediction):
 
     Parameters:
         classes (dict[int, str]): A dictionary mapping class IDs to class names.
-        prediction (dict[str, Tensor]): A dictionary containing prediction results.
-            Must include 'boxes' and 'labels' keys with corresponding Tensors.
+        prediction (dict[str, np.array]): A dictionary containing prediction results.
+            Must include 'boxes' and 'labels' keys with corresponding numpy arrays.
 
     Returns:
         dict: A dictionary containing the following keys:
@@ -34,28 +38,29 @@ def stats_count(classes, prediction):
     Note:
         - Area is calculated as an ellipse (pi * width/2 * height/2) for each bounding box.
     """
-    bboxes = prediction["boxes"]
-    labels = prediction["labels"]
+    bboxes = np.asarray(prediction["boxes"])
+    labels = np.asarray(prediction["labels"])
 
-    labels_names = [classes[i.item()] for i in labels]
+    labels_names = [classes[i] for i in labels]
     count = {}
     area = {}
     for class_id, class_name in classes.items():
         if class_name == "background":
             continue  # skip background
-        bboxes_by_class = bboxes[torch.where(labels == class_id)]
+        bboxes_by_class = bboxes[np.where(labels == class_id)]
         count[class_name] = len(bboxes_by_class)
         area[class_name] = (
-            torch.sum(
+            np.sum(
                 (bboxes_by_class[:, 2] - bboxes_by_class[:, 0])
                 / 2.0
                 * (bboxes_by_class[:, 3] - bboxes_by_class[:, 1])
                 / 2.0
-            ).item()
+            )
             * math.pi
             if len(bboxes_by_class) > 0
             else 0
         )
+
     return {
         "bboxes": bboxes.tolist(),
         "labels": labels_names,
@@ -93,6 +98,7 @@ def _save_statistics(stats_writer, image_name, stats, classes):
         ]
     )
     stats_writer.writerow(row)
+    
 
 
 def _save_annotated_image(
@@ -245,7 +251,6 @@ def infer(
                 print("Sorry unexcpeted error occured:")
                 print(e)
                 print(f"Skipping: {image_name} \n")
-                raise e
             finally:  
                 if pb:
                     pb.update(1)
@@ -294,4 +299,3 @@ def load_pathes(path):
         ]
     else:
         raise ValueError(f"Invalid path: {path}")
-

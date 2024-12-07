@@ -1,6 +1,5 @@
 import math
 
-
 def make_patches(width, height, patch_size, overlap):
     """
     Create a grid of overlapping patches for an image.

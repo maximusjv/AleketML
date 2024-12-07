@@ -4,7 +4,11 @@ from PIL.Image import Image
 import torch
 import torchvision.ops as ops
 
+from utils.box_utils import box_iou
 from utils.patches import make_patches
+
+import torch
+import torchvision.ops as ops
 
 import torchvision.transforms.v2.functional as F
 from PIL.Image import Image
@@ -218,6 +222,38 @@ def postprocess(
 
     return {"boxes": boxes, "scores": scores, "labels": labels}
 
+@torch.no_grad()
+def preprocess(
+    size_factor, 
+    patch_size,
+    patch_overlap,
+    image):
+
+    if isinstance(image, str):
+        image = PIL.Image.open(image)
+
+    if isinstance(image, Image):
+        image = F.to_image(image)
+
+    ht, wd = image.shape[-2:]
+    ht = int(ht * size_factor)
+    wd = int(wd * size_factor)
+
+    padded_width, padded_height, patches = make_patches(
+        wd, ht, patch_size, patch_overlap
+    )
+
+    image = F.resize(image, size=[ht, wd])
+    image = F.pad(
+        image, padding=[0, 0, padded_width - wd, padded_height - ht], fill=0.0
+    )
+    image = F.to_dtype(image, dtype=torch.float32, scale=True)
+
+    patched_images = torch.stack(
+        [F.crop(image, y1, x1, y2 - y1, x2 - x1) for (x1, y1, x2, y2) in patches]
+    )
+
+    return patches, patched_images
 
 class Predictor:
 
