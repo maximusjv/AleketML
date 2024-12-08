@@ -11,10 +11,7 @@ from torchvision.transforms.v2 import functional as F
 from tqdm import tqdm
 
 from finetuning.checkpoints import get_default_model
-from utils.consts import NUM_TO_CLASSES
 from utils.visualize import visualize_bboxes
-from utils.predictor import Predictor
-
 
 def stats_count(classes, prediction):
     """
@@ -152,7 +149,6 @@ def infer(
     output_dir,
     iou_thresh,
     score_thresh,
-    use_merge=True,
     num_of_annotations_to_save=0,
     save_annotated_images=False,
     verbose=False,
@@ -167,7 +163,6 @@ def infer(
         output_dir (str): Directory to save the results.
         iou_thresh (float): IoU threshold for non-maximum suppression.
         score_thresh (float): Score threshold for object detection.
-        use_merge (bool, optional): Whether to use WBF. Defaults to True.
         num_of_annotations_to_save (int, optional): Number of annotations to save.
             Defaults to 0.
         save_annotated_images (bool, optional): Whether to save annotated images. Defaults to False.
@@ -225,7 +220,6 @@ def infer(
                     image,
                     iou_thresh,
                     score_thresh,
-                    use_merge
                 )
     
                 stats = stats_count(classes, pred)

@@ -160,7 +160,6 @@ def postprocess(
     predictions,
     post_postproces_detections,
     iou_thresh,
-    use_merge=True,
 ):
     """
     Postprocesses object detection predictions.
@@ -176,7 +175,6 @@ def postprocess(
                                                     contains 'boxes', 'scores', and 'labels' as PyTorch tensors.
         post_postproces_detections (int): The maximum number of detections to keep after post-processing.
         iou_thresh (float): The IoU threshold for merging or filtering boxes.
-        use_merge (bool, optional): Whether to use WBF (True) or NMS (False). Defaults to True.
 
     Returns:
         dict[str, np.ndarray]: A dictionary containing the post-processed 'boxes', 'scores', and 'labels'
@@ -201,15 +199,8 @@ def postprocess(
         scores = torch.stack(scores)
 
         boxes /= size_factor
-        if use_merge:
-            boxes, scores, labels = batched_wbf(boxes, scores, labels, iou_thresh)
-        else:
-            keep = ops.batched_nms(
-                boxes,
-                scores,
-                labels,
-                iou_thresh,
-            )
+        
+        boxes, scores, labels = batched_wbf(boxes, scores, labels, iou_thresh)
 
         boxes = boxes[:post_postproces_detections]
         scores = scores[:post_postproces_detections]
@@ -297,7 +288,7 @@ class Predictor:
 
     @torch.no_grad()
     def predict(
-        self, image, iou_thresh, score_thresh, use_merge=True
+        self, image, iou_thresh, score_thresh
     ):
         """
         Generate predictions for an image or a set of images using the model.
@@ -313,10 +304,6 @@ class Predictor:
                 overlapping detections.
             score_thresh (float): 
                 The confidence score threshold used to filter out low-confidence detections.
-            use_merge (bool, optional): 
-                If True, merge overlapping detections using Weighted Boxes Fusion (WBF). 
-                If False, use Non-Maximum Suppression (NMS). Defaults to True.
-
         Returns:
             dict[str, np.array]: A dictionary where:
                 - 'boxes': Bounding boxes of detected objects.
@@ -325,7 +312,7 @@ class Predictor:
         """
 
         self.model.roi_heads.score_thresh = score_thresh
-        self.model.roi_heads.nms_thresh = 1 if use_merge else iou_thresh
+        self.model.roi_heads.nms_thresh = 1 # nms is not used
         self.model.roi_heads.detections_per_img = self.detections_per_patch
         self.model.eval()
         
@@ -344,7 +331,6 @@ class Predictor:
             predictions,
             self.per_image_detections,
             iou_thresh,
-            use_merge=use_merge,
         )
 
         return predictions
@@ -352,7 +338,7 @@ class Predictor:
     
     @torch.no_grad()
     def get_predictions(
-        self, images, iou_thresh, score_thresh, use_merge=True
+        self, images, iou_thresh, score_thresh
     ):
         """
         Generate predictions for an image or a set of images using the model.
@@ -369,9 +355,6 @@ class Predictor:
                 overlapping detections.
             score_thresh (float): 
                 The confidence score threshold used to filter out low-confidence detections.
-            use_merge (bool, optional): 
-                If True, merge overlapping detections using Weighted Boxes Fusion (WBF). 
-                If False, use Non-Maximum Suppression (NMS). Defaults to True.
 
         Returns:
             dict[int, dict[str, np.array]]: A dictionary where:
@@ -393,7 +376,7 @@ class Predictor:
                 image, target = image
                 idx = target["image_id"]
                 
-            predictions = self.predict(image, iou_thresh, score_thresh, use_merge)
+            predictions = self.predict(image, iou_thresh, score_thresh)
             result[idx] = predictions
         
         return result if not single else next(iter(result.values()), None)

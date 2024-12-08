@@ -42,9 +42,6 @@ def main():
         "--save_annotated_images", action="store_true", help="save annotated images"
     )
     parser.add_argument(
-        "--use_nms", action="store_true", help="use nms for postprocessing"
-    )
-    parser.add_argument(
         "--image_size_factor",
         type=float,
         default=1.0,
@@ -117,7 +114,6 @@ def main():
         args.output_dir,
         args.iou_thresh,
         args.score_thresh,
-        not args.use_nms,
         args.num_of_annotations_to_save,
         args.save_annotated_images,
         verbose=True,
@@ -129,4 +125,5 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         print("Sorry something went wrong! :(")
+        raise e
         print(e.with_traceback(e.__traceback__))

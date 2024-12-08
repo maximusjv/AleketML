@@ -41,7 +41,6 @@ python infer_run.py <model_path> <images_path> [options]
 | --score_thresh | 0.8 | Confidence score threshold for detections |
 | --num_of_annotations_to_save | 0 | Number of annotated images to save (-1 for all) |
 | --save_annotated_images | False | Save images with visualized detections |
-| --use_nms | False | Use NMS (Non Maximum Supression) instead of WBF (Weighted Box Fusion) for post-processing |
 | --image_size_factor | 1.0 | Factor to resize input images |
 | --detections_per_image | 500 | Maximum number of detections per image |
 | --detections_per_patch | 100 | Maximum number of detections per patch |
@@ -83,7 +82,6 @@ python infer.py models/faster_rcnn.pth images/ \
     --score_thresh 0.7 \
     --num_of_annotations_to_save 10 \
     --save_annotated_images \
-    --use_merge \
     --images_per_batch 4 \
     --patch_size 512 \
     --patch_overlap 0.3
