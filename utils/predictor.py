@@ -11,67 +11,62 @@ import torchvision.transforms.v2.functional as F
 from PIL.Image import Image
 from torch.utils.data import Dataset
 
-def wbf(boxes, scores, labels, iou_threshold):
+def wbf(boxes, scores, iou_threshold):
     """
     Merges object detections based on Weighted Boxes Fusion (WBF).
 
     Args:
         boxes (np.ndarray): A numpy array of shape (N, 4) representing bounding boxes.
         scores (np.ndarray): A numpy array of shape (N,) representing confidence scores.
-        classes (np.ndarray): A numpy array of shape (N,) representing class IDs.
         iou_threshold (float): The IoU threshold for merging boxes.
 
     Returns:
         tuple[np.ndarray, np.ndarray, np.ndarray]: A tuple containing:
             - merged_boxes: A numpy array of shape (M, 4) representing merged boxes.
             - merged_scores: A numpy array of shape (M,) representing merged scores.
-            - merged_classes: A numpy array of shape (M,) representing merged classes.
-    """
-
+    """ 
     # 1. Sort Detections
-    indices = np.argsort(-scores)
+    indices = np.argsort(-scores)  # Sort by decreasing confidence scores
     boxes = boxes[indices]
     scores = scores[indices]
-    labels = labels[indices]
+    
+    merged_boxes, merged_scores, cluster_boxes, cluster_scores = [], [], [], []
 
-    merged_boxes = []
-    merged_scores = []
-    merged_labels = []
-
-    cluster_boxes = []
-    cluster_scores = []
-
-    for current_box, current_score, current_label in zip(boxes, scores, labels):
-        found = False
-
+    # 2. Iterate through predictions
+    for current_box, current_score in zip(boxes, scores):
+        found_cluster = False
+        # 3. Find cluster
         for i, merged_box in enumerate(merged_boxes):
-            iou = box_iou(current_box[np.newaxis, ...], merged_box[np.newaxis, ...])[0, 0]
-            if iou > iou_threshold:
-                found = True
+            # Calculate IoU between current box and merged box
+            iou = box_iou(current_box[np.newaxis, ...], merged_box[np.newaxis, ...])[0, 0]  
+            if iou > iou_threshold: # 4. Cluster Found
+                found_cluster = True
                 
+                # Add current box to the cluster
                 cluster_boxes[i].append(current_box)
                 cluster_scores[i].append(current_score)
-                
+
+                # Get all boxes and scores in the cluster
                 matched_boxes = np.stack(cluster_boxes[i])
                 matched_scores = np.stack(cluster_scores[i])
 
-                # Merge boxes using weighted average
-                merged_boxes[i] = (
-                    matched_boxes * matched_scores[:, np.newaxis]
-                    ).sum(axis=0) / matched_scores.sum()
-                merged_scores[i] = matched_scores.mean()
-                break
-
-        if not found:
+                # Merge boxes using weighted average based on scores
+                merged_boxes[i] = (matched_boxes * matched_scores[:, np.newaxis]).sum(axis=0) / matched_scores.sum()  
+                merged_scores[i] = matched_scores.mean()  # Average the scores
+                break  # Move to the next box
+                
+        # 5. Cluster not found
+        if not found_cluster:
+            # If no overlap, add the current box as a new merged box
             merged_boxes.append(current_box)
             merged_scores.append(current_score)
-            merged_labels.append(current_label)
 
+            # Create a new cluster for this box
             cluster_boxes.append([current_box])
             cluster_scores.append([current_score])
 
-    return np.stack(merged_boxes), np.stack(merged_scores), np.stack(merged_labels)
-
+    # 6. Return merged boxes, scores, and labels
+    return np.stack(merged_boxes), np.stack(merged_scores)
 
 def batched_wbf(boxes, scores, labels, iou_threshold):
     """
@@ -97,10 +92,10 @@ def batched_wbf(boxes, scores, labels, iou_threshold):
     
     for class_id in classes:
         keep = np.where(labels == class_id)
-        mb, ms, ml = wbf(boxes[keep], scores[keep], labels[keep], iou_threshold)
-        merged_boxes.append(mb)
-        merged_scores.append(ms)
-        merged_labels.append(ml)
+        wbf_boxes, wbf_scores = wbf(boxes[keep], scores[keep], iou_threshold)
+        merged_boxes.append(wbf_boxes)
+        merged_scores.append(wbf_scores)
+        merged_labels.append(np.full_like(wbf_scores, class_id))
 
     merged_boxes = np.concatenate(merged_boxes)
     merged_scores = np.concatenate(merged_scores)
@@ -115,36 +110,58 @@ def batched_wbf(boxes, scores, labels, iou_threshold):
 
 
 @torch.no_grad()
-def preprocess(
-    size_factor, 
-    patch_size,
-    patch_overlap,
-    image):
+def preprocess(size_factor, patch_size,patch_overlap,image):
+    """
+    Preprocesses an image by resizing, padding, and dividing it into patches.
 
+    This function takes an image, resizes it by a given factor, pads it to ensure 
+    it can be divided into patches of a specified size with a given overlap, 
+    and then extracts the patches.
+
+    Args:
+        size_factor (float): The factor by which to resize the image.
+        patch_size (int): The size of the patches (width and height).
+        patch_overlap (float): The overlap between adjacent patches (as a fraction).
+        image (str, PIL.Image.Image, or torch.Tensor): The input image. 
+                                                       Can be a file path, 
+                                                       a PIL Image, or a PyTorch tensor.
+
+    Returns:
+        tuple: A tuple containing:
+            - patches (list): A list of bounding boxes (x1, y1, x2, y2) for each patch.
+            - patched_images (torch.Tensor): A PyTorch tensor containing the extracted patches.
+    """
+    # 1. Load image if it's a file path
     if isinstance(image, str):
         image = PIL.Image.open(image)
 
+    # 2. Convert PIL Image to torchvision.Image
     if isinstance(image, Image):
         image = F.to_image(image)
 
+    # 3. Resize the image
     ht, wd = image.shape[-2:]
     ht = int(ht * size_factor)
     wd = int(wd * size_factor)
-
+    image = F.resize(image, size=[ht, wd])
+    
+    # 4. Calculate padding and patch coordinates
     padded_width, padded_height, patches = make_patches(
         wd, ht, patch_size, patch_overlap
     )
 
-    image = F.resize(image, size=[ht, wd])
+    # 5. Pad the image
     image = F.pad(
         image, padding=[0, 0, padded_width - wd, padded_height - ht], fill=0.0
     )
+
+    # 6. Convert image to float32 tensor
     image = F.to_dtype(image, dtype=torch.float32, scale=True)
 
+    # 7. Extract patches
     patched_images = torch.stack(
         [F.crop(image, y1, x1, y2 - y1, x2 - x1) for (x1, y1, x2, y2) in patches]
     )
-
     return patches, patched_images
 
 @torch.no_grad()
@@ -178,41 +195,40 @@ def postprocess(
     labels = []
     scores = []
 
+    # 1. Adjust bounding boxes to original image coordinates
     for prediction, patch in zip(predictions, patches):
-        x1, y1, _, _ = patch
-        prediction["boxes"][:, [0, 2]] += x1
-        prediction["boxes"][:, [1, 3]] += y1
+        x1, y1, _, _ = patch  # Get top-left coordinates of the patch
+        prediction["boxes"][:, [0, 2]] += x1  # Adjust x-coordinates of boxes
+        prediction["boxes"][:, [1, 3]] += y1  # Adjust y-coordinates of boxes
         if len(prediction["boxes"]) != 0:
             boxes.extend(prediction["boxes"].numpy(force=True))
             labels.extend(prediction["labels"].numpy(force=True))
             scores.extend(prediction["scores"].numpy(force=True))
 
+    # 2. Apply WBF and select top-k detections
     if boxes:
         labels = np.stack(labels)
         boxes = np.stack(boxes)
         scores = np.stack(scores)
 
-        boxes /= size_factor
-        
-        boxes, scores, labels = batched_wbf(boxes, scores, labels, iou_thresh)
+        boxes /= size_factor  # Rescale boxes to original image size
 
-        boxes = boxes[:post_postproces_detections]
+        boxes, scores, labels = batched_wbf(boxes, scores, labels, iou_thresh)  # Apply WBF by class
+
+        boxes = boxes[:post_postproces_detections]  # Select top-k detections
         scores = scores[:post_postproces_detections]
         labels = labels[:post_postproces_detections]
-
     else:
+        # Handle the case where no detections were made
         labels = np.zeros(0, dtype=torch.int64)
         boxes = np.zeros((0, 4), dtype=torch.float32)
         scores = np.zeros(0, dtype=torch.float32)
 
     return {"boxes": boxes, "scores": scores, "labels": labels}
 
+
 @torch.no_grad()
-def preprocess(
-    size_factor, 
-    patch_size,
-    patch_overlap,
-    image):
+def preprocess(size_factor,patch_size,patch_overlap,image):
 
     if isinstance(image, str):
         image = PIL.Image.open(image)
