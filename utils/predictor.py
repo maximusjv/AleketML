@@ -1,14 +1,11 @@
 import PIL
 from PIL.Image import Image
 
+import numpy as np
 import torch
-import torchvision.ops as ops
 
 from utils.box_utils import box_iou
 from utils.patches import make_patches
-
-import torch
-import torchvision.ops as ops
 
 import torchvision.transforms.v2.functional as F
 from PIL.Image import Image
@@ -32,7 +29,7 @@ def wbf(boxes, scores, labels, iou_threshold):
     """
 
     # 1. Sort Detections
-    indices = torch.argsort(scores, descending=True)
+    indices = np.argsort(-scores)
     boxes = boxes[indices]
     scores = scores[indices]
     labels = labels[indices]
@@ -48,21 +45,20 @@ def wbf(boxes, scores, labels, iou_threshold):
         found = False
 
         for i, merged_box in enumerate(merged_boxes):
-            iou = ops.box_iou(current_box[torch.newaxis, ...], merged_box[torch.newaxis, ...])[0, 0]
+            iou = box_iou(current_box[np.newaxis, ...], merged_box[np.newaxis, ...])[0, 0]
             if iou > iou_threshold:
                 found = True
                 
-              
                 cluster_boxes[i].append(current_box)
                 cluster_scores[i].append(current_score)
                 
-                matched_boxes = torch.stack(cluster_boxes[i])
-                matched_scores = torch.stack(cluster_scores[i])
+                matched_boxes = np.stack(cluster_boxes[i])
+                matched_scores = np.stack(cluster_scores[i])
 
                 # Merge boxes using weighted average
-                merged_boxes[i] = (matched_boxes * matched_scores[:, torch.newaxis]).sum(
-                    axis=0
-                ) / matched_scores.sum()
+                merged_boxes[i] = (
+                    matched_boxes * matched_scores[:, np.newaxis]
+                    ).sum(axis=0) / matched_scores.sum()
                 merged_scores[i] = matched_scores.mean()
                 break
 
@@ -74,7 +70,7 @@ def wbf(boxes, scores, labels, iou_threshold):
             cluster_boxes.append([current_box])
             cluster_scores.append([current_score])
 
-    return torch.stack(merged_boxes), torch.stack(merged_scores), torch.stack(merged_labels)
+    return np.stack(merged_boxes), np.stack(merged_scores), np.stack(merged_labels)
 
 
 def batched_wbf(boxes, scores, labels, iou_threshold):
@@ -93,26 +89,24 @@ def batched_wbf(boxes, scores, labels, iou_threshold):
             - merged_scores: A numpy array of shape (M,) representing merged scores.
             - merged_classes: A numpy array of shape (M,) representing merged classes.
     """
-
-
-    classes = torch.unique(labels)
+    classes = np.unique(labels)
 
     merged_boxes = []
     merged_scores = []
     merged_labels = []
     
     for class_id in classes:
-        keep = torch.where(labels == class_id)
+        keep = np.where(labels == class_id)
         mb, ms, ml = wbf(boxes[keep], scores[keep], labels[keep], iou_threshold)
         merged_boxes.append(mb)
         merged_scores.append(ms)
         merged_labels.append(ml)
 
-    merged_boxes = torch.cat(merged_boxes)
-    merged_scores = torch.cat(merged_scores)
-    merged_labels = torch.concatenate(merged_labels)
+    merged_boxes = np.concatenate(merged_boxes)
+    merged_scores = np.concatenate(merged_scores)
+    merged_labels = np.concatenate(merged_labels)
 
-    indices = torch.argsort(merged_scores, descending=True)
+    indices = np.argsort(-merged_scores)
     merged_boxes = merged_boxes[indices]
     merged_scores = merged_scores[indices]
     merged_labels = merged_labels[indices]
@@ -189,14 +183,14 @@ def postprocess(
         prediction["boxes"][:, [0, 2]] += x1
         prediction["boxes"][:, [1, 3]] += y1
         if len(prediction["boxes"]) != 0:
-            boxes.extend(prediction["boxes"])
-            labels.extend(prediction["labels"])
-            scores.extend(prediction["scores"])
+            boxes.extend(prediction["boxes"].numpy(force=True))
+            labels.extend(prediction["labels"].numpy(force=True))
+            scores.extend(prediction["scores"].numpy(force=True))
 
     if boxes:
-        labels = torch.stack(labels)
-        boxes = torch.stack(boxes)
-        scores = torch.stack(scores)
+        labels = np.stack(labels)
+        boxes = np.stack(boxes)
+        scores = np.stack(scores)
 
         boxes /= size_factor
         
@@ -207,9 +201,9 @@ def postprocess(
         labels = labels[:post_postproces_detections]
 
     else:
-        labels = torch.zeros(0, dtype=torch.int64)
-        boxes = torch.zeros((0, 4), dtype=torch.float32)
-        scores = torch.zeros(0, dtype=torch.float32)
+        labels = np.zeros(0, dtype=torch.int64)
+        boxes = np.zeros((0, 4), dtype=torch.float32)
+        scores = np.zeros(0, dtype=torch.float32)
 
     return {"boxes": boxes, "scores": scores, "labels": labels}
 

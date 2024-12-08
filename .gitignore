@@ -7,4 +7,4 @@ __pycache__
 *statistics*
 .ipynb_checkpoints
 model.pth
-output
+output/

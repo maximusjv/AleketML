@@ -33,13 +33,10 @@ def main():
         help="score threshold for object detection (default: 0.8)",
     )
     parser.add_argument(
-        "--num_of_annotations_to_save",
-        type=int,
-        default=0,
-        help="number of annotated images to save (default: 0, -1 for all)",
+        "--save_annots", action="store_true", help="save annotations",
     )
     parser.add_argument(
-        "--save_annotated_images", action="store_true", help="save annotated images"
+        "--save_images", action="store_true", help="save annotated images"
     )
     parser.add_argument(
         "--image_size_factor",
@@ -114,8 +111,8 @@ def main():
         args.output_dir,
         args.iou_thresh,
         args.score_thresh,
-        args.num_of_annotations_to_save,
-        args.save_annotated_images,
+        args.save_annots,
+        args.save_images,
         verbose=True,
     )
 

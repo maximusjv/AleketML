@@ -35,8 +35,8 @@ def stats_count(classes, prediction):
     Note:
         - Area is calculated as an ellipse (pi * width/2 * height/2) for each bounding box.
     """
-    bboxes = prediction["boxes"].numpy(force=True)
-    labels = prediction["labels"].numpy(force=True)
+    bboxes = np.asarray(prediction["boxes"])
+    labels = np.asarray(prediction["labels"])
 
     labels_names = [classes[i] for i in labels]
     count = {}
@@ -127,9 +127,6 @@ def _save_annotations(
         image_name (str): Name of the image.
         bboxes (list): List of bounding boxes.
         labels (list): List of class labels.
-        num_of_annotations_to_save (int): Number of annotations left to save.
-        save_annotated_images (bool): Whether to save annotated images.
-        annotated_dir (str): Directory to save annotated images.
         bboxes_dir (str): Directory to save bounding boxes.
     """
 
@@ -149,8 +146,8 @@ def infer(
     output_dir,
     iou_thresh,
     score_thresh,
-    num_of_annotations_to_save=0,
-    save_annotated_images=False,
+    save_annots=False,
+    save_images=False,
     verbose=False,
 ):
     """
@@ -163,14 +160,11 @@ def infer(
         output_dir (str): Directory to save the results.
         iou_thresh (float): IoU threshold for non-maximum suppression.
         score_thresh (float): Score threshold for object detection.
-        num_of_annotations_to_save (int, optional): Number of annotations to save.
+        save_annots (bool, optional): Where to save annotations. Defaults to False.
             Defaults to 0.
-        save_annotated_images (bool, optional): Whether to save annotated images. Defaults to False.
+        save_images (bool, optional): Whether to save annotated images. Defaults to False.
         verbose (bool, optional): Whether to print infer progress or not. Defaults to False.
     """
-
-    if num_of_annotations_to_save == -1:
-        num_of_annotations_to_save = len(images)
 
     output_dir = os.path.normpath(output_dir)
     os.makedirs(output_dir, exist_ok=True)
@@ -178,15 +172,14 @@ def infer(
     stats_file_path = os.path.join(output_dir, "stats.csv")
 
     bboxes_dir = (
-        os.path.join(output_dir, "bboxes") if num_of_annotations_to_save > 0 else None
+        os.path.join(output_dir, "bboxes") if save_annots else None
     )
     if bboxes_dir:
         os.makedirs(bboxes_dir, exist_ok=True)
 
     annotated_dir = (
         os.path.join(output_dir, "annotated")
-        if num_of_annotations_to_save > 0 and save_annotated_images
-        else None
+        if save_images else None
     )
     if annotated_dir:
         os.makedirs(annotated_dir, exist_ok=True)
@@ -226,13 +219,14 @@ def infer(
 
                 _save_statistics(stats_writer, image_name, stats, classes)
 
-                if num_of_annotations_to_save > 0:
+                if save_annots:
                     _save_annotations(
                         image_name,
                         stats["bboxes"],
                         stats["labels"],
                         bboxes_dir,
                     )
+                if save_images:
                     _save_annotated_image(
                         image,
                         image_name,
@@ -240,7 +234,6 @@ def infer(
                         stats["labels"],
                         annotated_dir,
                     )
-                    num_of_annotations_to_save -= 1
             except Exception as e:
                 print("Sorry unexcpeted error occured:")
                 print(e)
