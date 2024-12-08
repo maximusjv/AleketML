@@ -220,9 +220,9 @@ def postprocess(
         labels = labels[:post_postproces_detections]
     else:
         # Handle the case where no detections were made
-        labels = np.zeros(0, dtype=torch.int64)
-        boxes = np.zeros((0, 4), dtype=torch.float32)
-        scores = np.zeros(0, dtype=torch.float32)
+        labels = np.zeros(0, dtype=np.int64)
+        boxes = np.zeros((0, 4), dtype=np.float32)
+        scores = np.zeros(0, dtype=np.float32)
 
     return {"boxes": boxes, "scores": scores, "labels": labels}
 
