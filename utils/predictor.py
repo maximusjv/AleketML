@@ -286,7 +286,7 @@ class Predictor:
         self.device = device
         self.model = model.to(device)
         self.image_size_factor = image_size_factor
-        self.per_image_detections = detections_per_image
+        self.detections_per_image = detections_per_image
 
         self.patch_size = patch_size
         self.patch_overlap = patch_overlap
@@ -334,7 +334,7 @@ class Predictor:
         
         predictions = postprocess(
             predictions,
-            self.per_image_detections,
+            self.detections_per_image,
             score_thresh,
             iou_thresh,
         )
