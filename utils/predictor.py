@@ -30,6 +30,9 @@ def wbf(boxes, scores, iou_threshold):
     boxes = boxes[indices]
     scores = scores[indices]
     
+    if iou_threshold == 1: # no neeed in wbf
+        return boxes, scores
+    
     merged_boxes, merged_scores, cluster_boxes, cluster_scores = [], [], [], []
 
     # 2. Iterate through predictions
@@ -212,7 +215,7 @@ def postprocess(
     scores = scores[ind]
     
     # 2. Apply WBF and select top-k detections
-    if len(boxes) > 0 and iou_thresh < 1:
+    if len(boxes) > 0:
         boxes, scores, labels = batched_wbf(boxes, scores, labels, iou_thresh)  # Apply WBF by class
 
     boxes = boxes[:post_postproces_detections]  # Select top-k detections
