@@ -165,37 +165,12 @@ def preprocess(size_factor, patch_size,patch_overlap,image):
     return patches, patched_images
 
 @torch.no_grad()
-def postprocess(
-    size_factor,
-    patches,
-    predictions,
-    post_postproces_detections,
-    iou_thresh,
-):
-    """
-    Postprocesses object detection predictions.
-
-    This function takes a list of predictions and corresponding patch coordinates, adjusts the bounding boxes
-    to the original image coordinates, and applies either WBF or NMS to merge or filter overlapping detections.
-
-    Args:
-        size_factor (float): The factor by which the image was resized before patching.
-        patches (list[list[int]]): A list of patch coordinates, where each patch is represented by
-                                    a list [x1, y1, x2, y2].
-        predictions (list[dict[str, torch.Tensor]]): A list of prediction dictionaries, where each dictionary
-                                                    contains 'boxes', 'scores', and 'labels' as PyTorch tensors.
-        post_postproces_detections (int): The maximum number of detections to keep after post-processing.
-        iou_thresh (float): The IoU threshold for merging or filtering boxes.
-
-    Returns:
-        dict[str, np.ndarray]: A dictionary containing the post-processed 'boxes', 'scores', and 'labels'
-                                as NumPy arrays.
-    """
+def merge_patches(size_factor, patches, predictions):
     boxes = []
     labels = []
     scores = []
 
-    # 1. Adjust bounding boxes to original image coordinates
+    # Adjust bounding boxes to original image coordinates
     for prediction, patch in zip(predictions, patches):
         x1, y1, _, _ = patch  # Get top-left coordinates of the patch
         prediction["boxes"][:, [0, 2]] += x1  # Adjust x-coordinates of boxes
@@ -203,26 +178,48 @@ def postprocess(
         if len(prediction["boxes"]) != 0:
             boxes.extend(prediction["boxes"].numpy(force=True))
             labels.extend(prediction["labels"].numpy(force=True))
-            scores.extend(prediction["scores"].numpy(force=True))
+            scores.extend(prediction["scores"].numpy(force=True)) 
+    
+    labels = np.stack(labels)
+    boxes = np.stack(boxes)
+    scores = np.stack(scores)
+    
+    boxes /= size_factor  # Rescale boxes to original image size
+    
+    return {"boxes": boxes, "labels": labels, "scores": scores}
 
+@torch.no_grad()
+def postprocess(
+    predictions,
+    post_postproces_detections,
+    score_thresh,
+    iou_thresh,
+):
+    """
+
+
+    Returns:
+        dict[str, np.ndarray]: A dictionary containing the post-processed 'boxes', 'scores', and 'labels'
+                                as NumPy arrays.
+    """
+    # 1. Filter by score
+    boxes = predictions["boxes"]
+    labels = predictions["labels"]
+    scores = predictions["scores"]
+    
+    ind = np.where(scores >= score_thresh)
+    labels = labels[ind]
+    boxes = boxes[ind]
+    scores = scores[ind]
+    
     # 2. Apply WBF and select top-k detections
-    if boxes:
-        labels = np.stack(labels)
-        boxes = np.stack(boxes)
-        scores = np.stack(scores)
-
-        boxes /= size_factor  # Rescale boxes to original image size
-
+    if len(boxes) > 0:
         boxes, scores, labels = batched_wbf(boxes, scores, labels, iou_thresh)  # Apply WBF by class
 
         boxes = boxes[:post_postproces_detections]  # Select top-k detections
         scores = scores[:post_postproces_detections]
         labels = labels[:post_postproces_detections]
-    else:
-        # Handle the case where no detections were made
-        labels = np.zeros(0, dtype=np.int64)
-        boxes = np.zeros((0, 4), dtype=np.float32)
-        scores = np.zeros(0, dtype=np.float32)
+
 
     return {"boxes": boxes, "scores": scores, "labels": labels}
 
@@ -321,12 +318,11 @@ class Predictor:
                 - 'labels': Predicted class labels for each detection.
         """
 
-        self.model.roi_heads.score_thresh = score_thresh
-        self.model.roi_heads.nms_thresh = 1 # nms is not used
+        self.model.roi_heads.score_thresh = 0
+        self.model.roi_heads.nms_thresh = 1 # Disable PyTorch Postproccess
+        
         self.model.roi_heads.detections_per_img = self.detections_per_patch
         self.model.eval()
-        
-        result = {}
         
         predictions = []
         patches, patched_images = preprocess(self.image_size_factor, self.patch_size, self.patch_overlap, image)
@@ -334,12 +330,12 @@ class Predictor:
             b_imgs = b_imgs.to(self.device)
             with torch.autocast(device_type=self.device.type, dtype=torch.float16):
                 predictions.extend(self.model(b_imgs))
-
+        predictions = merge_patches(self.image_size_factor, patches, predictions)
+        
         predictions = postprocess(
-            self.image_size_factor,
-            patches,
             predictions,
             self.per_image_detections,
+            score_thresh,
             iou_thresh,
         )
 

@@ -238,6 +238,7 @@ def infer(
                 print("Sorry unexcpeted error occured:")
                 print(e)
                 print(f"Skipping: {image_name} \n")
+                raise e 
             except BaseException as e:
                 stats_file.close()
                 if pb:
