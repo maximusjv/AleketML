@@ -108,7 +108,6 @@ def batched_wbf(boxes, scores, labels, iou_threshold):
     
     return merged_boxes, merged_scores, merged_labels
 
-
 @torch.no_grad()
 def preprocess(size_factor, patch_size,patch_overlap,image):
     """
@@ -213,12 +212,12 @@ def postprocess(
     scores = scores[ind]
     
     # 2. Apply WBF and select top-k detections
-    if len(boxes) > 0:
+    if len(boxes) > 0 and iou_thresh < 1:
         boxes, scores, labels = batched_wbf(boxes, scores, labels, iou_thresh)  # Apply WBF by class
 
-        boxes = boxes[:post_postproces_detections]  # Select top-k detections
-        scores = scores[:post_postproces_detections]
-        labels = labels[:post_postproces_detections]
+    boxes = boxes[:post_postproces_detections]  # Select top-k detections
+    scores = scores[:post_postproces_detections]
+    labels = labels[:post_postproces_detections]
 
 
     return {"boxes": boxes, "scores": scores, "labels": labels}
