@@ -136,7 +136,7 @@ def pr_eval(gt_matches, dt_matches, dt_scores, recall_thrs):
         if pr_interpolated[i] > pr_interpolated[i - 1]:
             pr_interpolated[i - 1] = pr_interpolated[i]
 
-    inds = np.searchsorted(pr_interpolated, recall_thrs, side="left")
+    inds = np.searchsorted(rc, recall_thrs, side="left")
     pr_curve = np.zeros(len(recall_thrs)).tolist()
 
     for ri, pi in enumerate(inds):
