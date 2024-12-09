@@ -23,14 +23,14 @@ def main():
     parser.add_argument(
         "--iou_thresh",
         type=float,
-        default=0.2,
-        help="IOU threshold for postproccessing (default: 0.2)",
+        default=0.15,
+        help="IOU threshold for postproccessing (default: 0.15)",
     )
     parser.add_argument(
         "--score_thresh",
         type=float,
-        default=0.8,
-        help="score threshold for object detection (default: 0.8)",
+        default=0.75,
+        help="score threshold for object detection (default: 0.75)",
     )
     parser.add_argument(
         "--save_annots", action="store_true", help="save annotations",
@@ -48,13 +48,13 @@ def main():
         "--detections_per_image",
         type=int,
         default=500,
-        help="maximum number of detections per image (default: 300)",
+        help="maximum number of detections per image (default: 500)",
     )
     parser.add_argument(
         "--detections_per_patch",
         type=int,
-        default=100,
-        help="maximum number of detections per patch (default: 100)",
+        default=150,
+        help="maximum number of detections per patch (default: 150)",
     )
     parser.add_argument(
         "--patches_per_batch",
