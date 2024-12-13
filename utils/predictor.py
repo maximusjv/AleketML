@@ -30,7 +30,7 @@ def wbf(boxes, scores, iou_threshold):
     boxes = boxes[indices]
     scores = scores[indices]
     
-    if iou_threshold == 1: # no neeed in wbf
+    if iou_threshold >= 1: # no neeed in wbf
         return boxes, scores
     
     merged_boxes, merged_scores, cluster_boxes, cluster_scores = [], [], [], []
@@ -180,7 +180,7 @@ def merge_patches(size_factor, patches, predictions):
         if len(prediction["boxes"]) != 0:
             boxes.extend(prediction["boxes"].numpy(force=True))
             labels.extend(prediction["labels"].numpy(force=True))
-            scores.extend(prediction["scores"].numpy(force=True)) 
+            scores.extend(prediction["scores"].numpy(force=True))
     
     labels = np.stack(labels)
     boxes = np.stack(boxes)
@@ -204,11 +204,11 @@ def postprocess(
         dict[str, np.ndarray]: A dictionary containing the post-processed 'boxes', 'scores', and 'labels'
                                 as NumPy arrays.
     """
-    # 1. Filter by score
     boxes = predictions["boxes"]
     labels = predictions["labels"]
     scores = predictions["scores"]
     
+    # 1. Filter by score
     ind = np.where(scores >= score_thresh)
     labels = labels[ind]
     boxes = boxes[ind]
@@ -217,6 +217,11 @@ def postprocess(
     # 2. Apply WBF and select top-k detections
     if len(boxes) > 0:
         boxes, scores, labels = batched_wbf(boxes, scores, labels, iou_thresh)  # Apply WBF by class
+    else:
+        # Handle the case where no detections were made
+        labels = np.zeros(0, dtype=np.int64)
+        boxes = np.zeros((0, 4), dtype=np.float32)
+        scores = np.zeros(0, dtype=np.float32)
 
     boxes = boxes[:post_postproces_detections]  # Select top-k detections
     scores = scores[:post_postproces_detections]
