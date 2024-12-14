@@ -6,7 +6,7 @@ from utils.box_utils import match_gts_dts, box_area
 from utils.consts import VALIDATION_METRICS
 
 
-def prepare_gts(annots):
+def prepare_gts(annots, use_categories=True):
     """Prepares ground truth data for evaluation.
 
     Extracts ground truth bounding boxes and labels from the dataset and organizes them by image and category.
@@ -25,17 +25,18 @@ def prepare_gts(annots):
     image_ids = set()
     for target in annots:
         img_id = target["image_id"]
-        labels = (
-            target["labels"].numpy(force=True)
-            if isinstance(target["labels"], Tensor)
-            else np.asarray(target["labels"])
-        )
+      
         bbox = (
             target["boxes"].numpy(force=True)
             if isinstance(target["boxes"], Tensor)
             else np.asarray(target["boxes"])
         )
-
+        labels = (
+            target["labels"].numpy(force=True)
+            if isinstance(target["labels"], Tensor)
+            else np.asarray(target["labels"])
+        ) if use_categories else np.full(len(bbox), 1)
+        
         image_ids.add(img_id)
         categories.update(labels.tolist())
 
@@ -47,7 +48,7 @@ def prepare_gts(annots):
     return gts, sorted(image_ids), sorted(categories)
 
 
-def prepare_dts(predictions):
+def prepare_dts(predictions, use_categories=True):
     """Prepares detection results for evaluation.
 
     Organizes detection results by image and category, sorting them by confidence score.
@@ -65,16 +66,17 @@ def prepare_dts(predictions):
     categories = set()
 
     for img_id, preds in predictions.items():
-        labels = (
-            preds["labels"].numpy(force=True)
-            if isinstance(preds["labels"], Tensor)
-            else np.asarray(preds["labels"])
-        )
+    
         bbox = (
             preds["boxes"].numpy(force=True)
             if isinstance(preds["boxes"], Tensor)
             else np.asarray(preds["boxes"])
         )
+        labels = (
+            preds["labels"].numpy(force=True)
+            if isinstance(preds["labels"], Tensor)
+            else np.asarray(preds["labels"])
+        ) if use_categories else np.full(len(bbox), 1)
         scores = (
             preds["scores"].numpy(force=True)
             if isinstance(preds["scores"], Tensor)
@@ -187,7 +189,7 @@ def count_relative_diff(gt, dt):
 
 class Evaluator:
 
-    def __init__(self, annots):
+    def __init__(self, annots, use_categories=True):
         """
         Initializes the Evaluator class with ground truth data, image IDs, and categories.
 
@@ -197,11 +199,11 @@ class Evaluator:
         The function prepares ground truth data by calling the prepare_gts function. It initializes
         recall thresholds, IOU threshold, and an empty dictionary for storing evaluation results.
         """
-        (self.gts, self.images_id, self.categories) = prepare_gts(annots)
+        (self.gts, self.images_id, self.categories) = prepare_gts(annots, use_categories)
 
         self.recall_thrs = np.linspace(0.0, 1.00, 101)
         self.iou_thresh = 0.5
-
+        self.use_categories = use_categories
         self.eval_res = {}
 
     def quantitative_eval(self, dts):
@@ -332,7 +334,7 @@ class Evaluator:
         Note:
             This method also updates the `eval_res` attribute of the class with detailed evaluation results.
         """
-        dts = prepare_dts(dts)
+        dts = prepare_dts(dts, self.use_categories)
         pr_res = self.pr_eval(dts)
 
         pr_curve = pr_res["pr_curve"]
