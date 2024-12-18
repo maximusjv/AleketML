@@ -302,7 +302,7 @@ class Predictor:
 
     @torch.no_grad()
     def predict(
-        self, image, iou_thresh=0.5, score_thresh=0.05, post=True
+        self, image, iou_thresh, score_thresh
     ):
         """
         Generate predictions for an image or a set of images using the model.
@@ -324,9 +324,9 @@ class Predictor:
                 - 'scores': Confidence scores for each detection.
                 - 'labels': Predicted class labels for each detection.
         """
-        # Disable PyTorch Postproccess
+
         self.model.roi_heads.score_thresh = 0
-        self.model.roi_heads.nms_thresh = 1.0
+        self.model.roi_heads.nms_thresh = 1 # Disable PyTorch Postproccess
         
         self.model.roi_heads.detections_per_img = self.detections_per_patch
         self.model.eval()
@@ -338,20 +338,20 @@ class Predictor:
             with torch.autocast(device_type=self.device.type, dtype=torch.float16):
                 predictions.extend(self.model(b_imgs))
         predictions = merge_patches(self.image_size_factor, patches, predictions)
-        if post:
-            predictions = postprocess(
-                predictions,
-                self.detections_per_image,
-                score_thresh,
-                iou_thresh,
-            )
+        
+        predictions = postprocess(
+            predictions,
+            self.detections_per_image,
+            score_thresh,
+            iou_thresh,
+        )
 
         return predictions
     
     
     @torch.no_grad()
     def get_predictions(
-        self, images, iou_thresh=0.5, score_thresh=0.05, post=True
+        self, images, iou_thresh, score_thresh
     ):
         """
         Generate predictions for an image or a set of images using the model.
@@ -389,7 +389,7 @@ class Predictor:
                 image, target = image
                 idx = target["image_id"]
                 
-            predictions = self.predict(image, iou_thresh, score_thresh, post)
+            predictions = self.predict(image, iou_thresh, score_thresh)
             result[idx] = predictions
         
         return result if not single else next(iter(result.values()), None)
