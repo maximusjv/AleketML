@@ -23,8 +23,8 @@ def main():
     parser.add_argument(
         "--iou_thresh",
         type=float,
-        default=0.15,
-        help="IOU threshold for postproccessing (default: 0.15)",
+        default=0.25,
+        help="IOU threshold for postproccessing (default: 0.25)",
     )
     parser.add_argument(
         "--score_thresh",
@@ -45,16 +45,16 @@ def main():
         help="factor to resize input images (default: 1.0)",
     )
     parser.add_argument(
-        "--detections_per_image",
+        "--pre_wbf_detections",
         type=int,
-        default=500,
-        help="maximum number of detections per image (default: 500)",
+        default=1000,
+        help="maximum number of detections per image before wbf postprocess (default: 1000)",
     )
     parser.add_argument(
         "--detections_per_patch",
         type=int,
-        default=150,
-        help="maximum number of detections per patch (default: 150)",
+        default=200,
+        help="maximum number of detections per patch (default: 200)",
     )
     parser.add_argument(
         "--patches_per_batch",
@@ -98,7 +98,7 @@ def main():
         model,
         device,
         image_size_factor=args.image_size_factor,
-        pre_wbf_detections=args.detections_per_image,
+        pre_wbf_detections=args.pre_wbf_detections,
         detections_per_patch=args.detections_per_patch,
         patches_per_batch=args.patches_per_batch,
         patch_size=args.patch_size,
