@@ -25,24 +25,20 @@ def wbf(boxes, scores, iou_threshold):
             - merged_boxes: A numpy array of shape (M, 4) representing merged boxes.
             - merged_scores: A numpy array of shape (M,) representing merged scores.
     """ 
-    # 1. Sort Detections
-    indices = np.argsort(-scores)  # Sort by decreasing confidence scores
-    boxes = boxes[indices]
-    scores = scores[indices]
-    
+    # Assumed that detections are sorted
     if iou_threshold >= 1: # no neeed in wbf
         return boxes, scores
     
     merged_boxes, merged_scores, cluster_boxes, cluster_scores = [], [], [], []
 
-    # 2. Iterate through predictions
+    # 1. Iterate through predictions
     for current_box, current_score in zip(boxes, scores):
         found_cluster = False
-        # 3. Find cluster
+        # 2. Find cluster
         for i, merged_box in enumerate(merged_boxes):
             # Calculate IoU between current box and merged box
             iou = box_iou(current_box[np.newaxis, ...], merged_box[np.newaxis, ...])[0, 0]  
-            if iou > iou_threshold: # 4. Cluster Found
+            if iou > iou_threshold: # 3. Cluster Found
                 found_cluster = True
                 
                 # Add current box to the cluster
@@ -58,7 +54,7 @@ def wbf(boxes, scores, iou_threshold):
                 merged_scores[i] = matched_scores.mean()  # Average the scores
                 break  # Move to the next box
                 
-        # 5. Cluster not found
+        # 4. Cluster not found
         if not found_cluster:
             # If no overlap, add the current box as a new merged box
             merged_boxes.append(current_box)
@@ -68,7 +64,7 @@ def wbf(boxes, scores, iou_threshold):
             cluster_boxes.append([current_box])
             cluster_scores.append([current_score])
 
-    # 6. Return merged boxes, scores, and labels
+    # 5. Return merged boxes, scores, and labels
     return np.stack(merged_boxes), np.stack(merged_scores)
 
 def batched_wbf(boxes, scores, labels, iou_threshold):
@@ -193,7 +189,7 @@ def merge_patches(size_factor, patches, predictions):
 @torch.no_grad()
 def postprocess(
     predictions,
-    post_postproces_detections,
+    pre_wbf_detections,
     score_thresh,
     iou_thresh,
 ):
@@ -214,6 +210,15 @@ def postprocess(
     boxes = boxes[ind]
     scores = scores[ind]
     
+    ind = np.argsort(-scores)
+    labels = labels[ind]
+    boxes = boxes[ind]
+    scores = scores[ind]
+    
+    boxes = boxes[:pre_wbf_detections]  # Select top-k detections
+    scores = scores[:pre_wbf_detections]
+    labels = labels[:pre_wbf_detections]
+    
     # 2. Apply WBF and select top-k detections
     if len(boxes) > 0:
         boxes, scores, labels = batched_wbf(boxes, scores, labels, iou_thresh)  # Apply WBF by class
@@ -222,11 +227,6 @@ def postprocess(
         labels = np.zeros(0, dtype=np.int64)
         boxes = np.zeros((0, 4), dtype=np.float32)
         scores = np.zeros(0, dtype=np.float32)
-
-    boxes = boxes[:post_postproces_detections]  # Select top-k detections
-    scores = scores[:post_postproces_detections]
-    labels = labels[:post_postproces_detections]
-
 
     return {"boxes": boxes, "scores": scores, "labels": labels}
 
@@ -267,7 +267,7 @@ class Predictor:
         model,
         device,
         image_size_factor=1,
-        detections_per_image=500,
+        pre_wbf_detections=500,
         detections_per_patch=100,
         patches_per_batch=4,
         patch_size=1024,
@@ -293,7 +293,7 @@ class Predictor:
         self.device = device
         self.model = model.to(device)
         self.image_size_factor = image_size_factor
-        self.detections_per_image = detections_per_image
+        self.pre_wbf_detections = pre_wbf_detections
 
         self.patch_size = patch_size
         self.patch_overlap = patch_overlap
@@ -341,7 +341,7 @@ class Predictor:
         
         predictions = postprocess(
             predictions,
-            self.detections_per_image,
+            self.pre_wbf_detections,
             score_thresh,
             iou_thresh,
         )

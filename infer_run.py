@@ -98,7 +98,7 @@ def main():
         model,
         device,
         image_size_factor=args.image_size_factor,
-        detections_per_image=args.detections_per_image,
+        pre_wbf_detections=args.detections_per_image,
         detections_per_patch=args.detections_per_patch,
         patches_per_batch=args.patches_per_batch,
         patch_size=args.patch_size,
