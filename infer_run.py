@@ -47,14 +47,14 @@ def main():
     parser.add_argument(
         "--pre_wbf_detections",
         type=int,
-        default=1000,
-        help="maximum number of detections per image before wbf postprocess (default: 1000)",
+        default=2500,
+        help="maximum number of detections per image before wbf postprocess (default: 2500)",
     )
     parser.add_argument(
         "--detections_per_patch",
         type=int,
-        default=200,
-        help="maximum number of detections per patch (default: 200)",
+        default=3000,
+        help="maximum number of detections per patch (default: 300)",
     )
     parser.add_argument(
         "--patches_per_batch",

@@ -267,8 +267,8 @@ class Predictor:
         model,
         device,
         image_size_factor=1,
-        pre_wbf_detections=1000,
-        detections_per_patch=200,
+        pre_wbf_detections=2500,
+        detections_per_patch=300,
         patches_per_batch=4,
         patch_size=1024,
         patch_overlap=0.2,
@@ -325,8 +325,8 @@ class Predictor:
                 - 'labels': Predicted class labels for each detection.
         """
 
-        self.model.roi_heads.score_thresh = 0
-        self.model.roi_heads.nms_thresh = 1 # Disable PyTorch Postproccess
+        self.model.roi_heads.score_thresh = 0.05 # Minimal post proccesing for performance
+        self.model.roi_heads.nms_thresh = 0.7 # Minimal pytorch-built post proccesing for performance
         
         self.model.roi_heads.detections_per_img = self.detections_per_patch
         self.model.eval()

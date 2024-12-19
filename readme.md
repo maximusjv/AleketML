@@ -42,8 +42,8 @@ python infer_run.py <model_path> <images_path> [options]
 | --save_annots | False | Save detections annotations |
 | --save_images | False | Save images with visualized detections |
 | --image_size_factor | 1.0 | Factor to resize input images |
-| --pre_wbf_detections | 1000 | Maximum number of detections per image before wbf postprocess  |
-| --detections_per_patch | 200 | Maximum number of detections per patch |
+| --pre_wbf_detections | 2500 | Maximum number of detections per image before wbf postprocess  |
+| --detections_per_patch | 300 | Maximum number of detections per patch |
 | --patches_per_batch | 4 | Number of patches to process in each batch |
 | --patch_size | 1024 | Size of each image patch |
 | --patch_overlap | 0.2 | Overlap between adjacent patches |
