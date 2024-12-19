@@ -71,20 +71,17 @@ Visualizations of the original images with:
 
 Basic usage with default parameters:
 ```bash
-python infer.py models/faster_rcnn.pth images/
+python infer_run.py model.pth images/
 ```
 
 Advanced usage with custom parameters:
 ```bash
-python infer.py models/faster_rcnn.pth images/ \
+python infer_run.py model.pth images/ \
     --output_dir results \
-    --iou_thresh 0.15 \
+    --iou_thresh 0.25 \
     --score_thresh 0.75 \
     --save_annots \
     --save_images \
-    --patches_per_batch 4 \
-    --patch_size 1024 \
-    --patch_overlap 0.2
 ```
 
 ## Notes
