@@ -7,13 +7,15 @@ This tool supports batch processing, image patching, and provides detailed stati
 
 ## Installation
 
->Note: you should have python3 installed
+>Note: you should have python (version >=3.7 & <3.11) installed
 
 ```bash
 git clone https://github.com/maximusjv/AleketML.git
 cd AleketML
 pip install -r requirements.txt
 ```
+
+>It's recommended to use python virtual enviroment
 
 For better performance it's highly recommended to have gpu compatible with ndivida CUDA, and have cuda installed.
 
