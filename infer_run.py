@@ -122,5 +122,4 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         print("Sorry something went wrong! :(")
-        raise e
         print(e.with_traceback(e.__traceback__))
