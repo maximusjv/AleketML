@@ -7,12 +7,17 @@ from utils.consts import VALIDATION_METRICS
 
 
 def prepare_gts(annots, use_categories=True):
-    """Prepares ground truth data for evaluation.
+    """
+    Prepares ground truth data for evaluation.
 
-    Extracts ground truth bounding boxes and labels from the dataset and organizes them by image and category.
+    This function processes a list of ground truth annotations and organizes them into a dictionary
+    for efficient lookup during evaluation. It handles potential Tensor inputs and allows for 
+    filtering by category.
 
     Args:
         annots (list[dict]): A list of annotation dictionaries, each containing 'image_id', 'labels', and 'boxes'.
+        use_categories (bool, optional): Whether to organize ground truths by category. Defaults to True. 
+                                         If False, all objects are treated as a single category.
 
     Returns:
         tuple[dict, list, list]: A tuple containing:
@@ -20,85 +25,95 @@ def prepare_gts(annots, use_categories=True):
             - A sorted list of image IDs.
             - A sorted list of category IDs.
     """
-    gts = {}
-    categories = set()
-    image_ids = set()
-    for target in annots:
-        img_id = target["image_id"]
-      
+    gts = {}  # Initialize a dictionary to store ground truth bounding boxes
+    categories = set()  # Initialize a set to store unique category IDs
+    image_ids = set()  # Initialize a set to store unique image IDs
+    for target in annots:  # Iterate over each annotation in the list
+        img_id = target["image_id"]  # Get the image ID
+
+        # Convert bounding boxes to a NumPy array, handling potential Tensor inputs
         bbox = (
             target["boxes"].numpy(force=True)
             if isinstance(target["boxes"], Tensor)
             else np.asarray(target["boxes"])
         )
+        # Convert labels to a NumPy array, handling potential Tensor inputs and optional category filtering
         labels = (
             target["labels"].numpy(force=True)
             if isinstance(target["labels"], Tensor)
             else np.asarray(target["labels"])
-        ) if use_categories else np.full(len(bbox), 1)
-        
-        image_ids.add(img_id)
-        categories.update(labels.tolist())
+        ) if use_categories else np.full(len(bbox), 1)  # If use_categories is False, assign all objects to a single category
 
-        for label in categories:
-            ind = np.where(labels == label)
-            if len(bbox[ind]) != 0:
-                gts[img_id, label] = bbox[ind]
+        image_ids.add(img_id)  # Add the image ID to the set
+        categories.update(labels.tolist())  # Add the category IDs to the set
 
-    return gts, sorted(image_ids), sorted(categories)
+        for label in categories:  # Iterate over each category
+            ind = np.where(labels == label)  # Find the indices of bounding boxes corresponding to the current category
+            if len(bbox[ind]) != 0:  # If there are any bounding boxes for this category
+                gts[img_id, label] = bbox[ind]  # Add the bounding boxes to the dictionary
+
+    return gts, sorted(image_ids), sorted(categories)  # Return the organized ground truths, image IDs, and category IDs
 
 
 def prepare_dts(predictions, use_categories=True):
-    """Prepares detection results for evaluation.
+    """
+    Prepares detection results for evaluation.
 
-    Organizes detection results by image and category, sorting them by confidence score.
+    This function processes a dictionary of detection results and organizes them into a dictionary
+    for efficient lookup during evaluation. It handles potential Tensor inputs, sorts detections 
+    by confidence score, and allows for filtering by category.
 
     Args:
         predictions (dict): A dictionary mapping image IDs to prediction dictionaries
-                             containing 'boxes', 'scores', and 'labels'.
+                            containing 'boxes', 'scores', and 'labels'.
+        use_categories (bool, optional): Whether to organize detections by category. Defaults to True.
+                                         If False, all objects are treated as a single category.
 
     Returns:
         dict: A dictionary mapping (image_id, category_id) to a tuple of:
             - A NumPy array of detected bounding boxes.
             - A NumPy array of corresponding confidence scores.
     """
-    dts = dict()
-    categories = set()
+    dts = dict()  # Initialize a dictionary to store detection results
+    categories = set()  # Initialize a set to store unique category IDs
 
-    for img_id, preds in predictions.items():
-    
+    for img_id, preds in predictions.items():  # Iterate over each image ID and its predictions
+        # Convert bounding boxes to a NumPy array, handling potential Tensor inputs
         bbox = (
             preds["boxes"].numpy(force=True)
             if isinstance(preds["boxes"], Tensor)
             else np.asarray(preds["boxes"])
         )
+        # Convert labels to a NumPy array, handling potential Tensor inputs and optional category filtering
         labels = (
             preds["labels"].numpy(force=True)
             if isinstance(preds["labels"], Tensor)
             else np.asarray(preds["labels"])
-        ) if use_categories else np.full(len(bbox), 1)
+        ) if use_categories else np.full(len(bbox), 1)  # If use_categories is False, assign all objects to a single category
+        # Convert scores to a NumPy array, handling potential Tensor inputs
         scores = (
             preds["scores"].numpy(force=True)
             if isinstance(preds["scores"], Tensor)
             else np.asarray(preds["scores"])
         )
 
-        categories.update(labels.tolist())
+        categories.update(labels.tolist())  # Add the category IDs to the set
 
-        for cat in categories:
+        for cat in categories:  # Iterate over each category
+            ind = np.where(labels == cat)  # Find the indices of bounding boxes corresponding to the current category
+            bbox_filtered = bbox[ind]  # Filter bounding boxes by category
+            scores_filtered = scores[ind]  # Filter scores by category
 
-            ind = np.where(labels == cat)
-            bbox_filtered = bbox[ind]
-            scores_filtered = scores[ind]
-
+            # Sort detections by score in descending order
             ind = np.argsort(
                 -scores_filtered, kind="mergesort"
-            )  # sort detections by score
+            )  
 
-            if len(bbox_filtered[ind]) != 0:
-                dts[img_id, cat] = bbox_filtered[ind], scores_filtered[ind]
+            if len(bbox_filtered[ind]) != 0:  # If there are any bounding boxes for this category
+                # Add the sorted bounding boxes and scores to the dictionary
+                dts[img_id, cat] = bbox_filtered[ind], scores_filtered[ind]  
 
-    return dts
+    return dts  # Return the organized detection results
 
 
 def pr_eval(gt_matches, dt_matches, dt_scores, recall_thrs):
@@ -188,19 +203,27 @@ def count_relative_diff(gt, dt):
 
 
 class Evaluator:
+    """
+    Evaluates object detection models using various metrics.
+
+    This class provides methods for calculating precision-recall curves, average precision, 
+    and quantitative metrics like area difference and count difference. It supports evaluating
+    models with or without category distinctions.
+    """
 
     def __init__(self, annots, use_categories=True):
         """
-        Initializes the Evaluator class with ground truth data, image IDs, and categories.
+        Initializes the Evaluator with ground truth annotations.
 
-        Parameters:
-            annots (list[dict]): A list of annotation dictionaries, each containing 'image_id', 'labels', and 'boxes'.
-
-        The function prepares ground truth data by calling the prepare_gts function. It initializes
-        recall thresholds, IOU threshold, and an empty dictionary for storing evaluation results.
+        Args:
+            annots (list[dict]): A list of annotation dictionaries, each containing 
+                                 'image_id', 'labels', and 'boxes'.
+            use_categories (bool, optional): Whether to evaluate with category distinctions. 
+                                             Defaults to True.
         """
-        (self.gts, self.images_id, self.categories) = prepare_gts(annots, use_categories)
-
+        (self.gts, self.images_id, self.categories) = prepare_gts(
+            annots, use_categories
+        )
         self.recall_thrs = np.linspace(0.0, 1.00, 101)
         self.iou_thresh = 0.5
         self.use_categories = use_categories
@@ -208,24 +231,16 @@ class Evaluator:
 
     def quantitative_eval(self, dts):
         """
-        Performs quantitative evaluation of detection results.
-
-        This function calculates the Area Difference (AD) and Count Difference (CD)
-        between ground truth and detected bounding boxes for each category and image.
+        Calculates quantitative metrics (area difference and count difference).
 
         Args:
-            dts (dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]): A dictionary
-                where keys are tuples of (image_id, category_id) and values are tuples
-                of (detected_boxes, scores). detected_boxes is a numpy array of shape
-                (n, 4) representing bounding boxes, and scores is a numpy array of
-                shape (n,) representing confidence scores.
+            dts (dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]): 
+                A dictionary of detection results. Keys are (image_id, category_id) tuples, 
+                values are (detected_boxes, scores) tuples.
 
         Returns:
-            dict[str, np.ndarray]: A dictionary containing:
-                - "AD": numpy array of shape (K, I) representing Area Difference,
-                        where K is the number of categories and I is the number of images.
-                - "CD": numpy array of shape (K, I) representing Count Difference,
-                        where K is the number of categories and I is the number of images.
+            dict[str, np.ndarray]: A dictionary containing 'AD' (area difference) and 
+                                    'CD' (count difference) matrices.
         """
         I = len(self.images_id)
         K = len(self.categories)
@@ -245,23 +260,16 @@ class Evaluator:
 
     def pr_eval(self, dts):
         """
-        Evaluates precision-recall metrics for object detection results.
-
-        This method calculates precision-recall curves, precision, recall, and F1 scores
-        for each category in the dataset based on the provided detection results.
+        Evaluates precision-recall metrics.
 
         Args:
-            dts (dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]): A dictionary of detection results.
-                Keys are tuples of (image_id, category_id), and values are tuples of
-                (detected_boxes, confidence_scores).
+            dts (dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]): 
+                A dictionary of detection results. Keys are (image_id, category_id) tuples, 
+                values are (detected_boxes, scores) tuples.
 
         Returns:
-            dict[str, np.ndarray]: A dictionary containing the following evaluation results:
-                - 'pr_curve': Precision-recall curves for each category (shape: [K, R])
-                - 'precision': Precision values for each category (shape: [K,])
-                - 'recall': Recall values for each category (shape: [K,])
-                - 'F1': F1 scores for each category (shape: [K,])
-            where K is the number of categories and R is the number of recall thresholds.
+            dict[str, np.ndarray]: A dictionary containing precision-recall curves ('pr_curve'), 
+                                    precision ('precision'), recall ('recall'), and F1 scores ('F1').
         """
         K = len(self.categories)
         R = len(self.recall_thrs)
@@ -277,9 +285,10 @@ class Evaluator:
             dt_scores = []
 
             for image_id in self.images_id:
-
                 gt = self.gts.get((image_id, cat), np.empty((0, 4)))
-                dt, score = dts.get((image_id, cat), (np.empty((0, 4)), np.empty(0)))
+                dt, score = dts.get(
+                    (image_id, cat), (np.empty((0, 4)), np.empty(0))
+                )
 
                 if len(dt) == 0 and len(gt) == 0:
                     continue
@@ -311,28 +320,15 @@ class Evaluator:
 
     def eval(self, dts):
         """
-        Evaluates the detection results and calculates various metrics.
-
-        This function processes the detection results, computes precision-recall metrics,
-        and calculates quantitative metrics such as Average Precision (AP), Recall, Precision,
-        F1 score, Average Count Difference (ACD), and Average Area Difference (AAD).
+        Evaluates detection results and returns a dictionary of metrics.
 
         Args:
-            dts (dict[int, dict[str, torch.Tensor]]): A dictionary mapping image IDs to prediction
-                dictionaries. Each prediction dictionary contains 'boxes', 'scores', and 'labels'
-                as torch.Tensor objects.
+            dts (dict[int, dict[str, torch.Tensor]]): 
+                A dictionary of detection results. Keys are image IDs, 
+                values are dictionaries containing 'boxes', 'scores', and 'labels'.
 
         Returns:
-            dict: A dictionary mapping metric names to their calculated values. The metrics include:
-                - AP (Average Precision)
-                - Recall
-                - Precision
-                - F1 score
-                - ACD (Average Count Difference)
-                - AAD (Average Area Difference)
-
-        Note:
-            This method also updates the `eval_res` attribute of the class with detailed evaluation results.
+            dict: A dictionary of evaluation metrics, including AP, Recall, Precision, F1, ACD, and AAD.
         """
         dts = prepare_dts(dts, self.use_categories)
         pr_res = self.pr_eval(dts)

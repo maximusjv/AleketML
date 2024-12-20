@@ -164,6 +164,30 @@ def preprocess(size_factor, patch_size,patch_overlap,image):
 
 @torch.no_grad()
 def merge_patches(size_factor, patches, predictions):
+    """
+    Merges predictions from image patches into a single prediction for the original image.
+
+    This function takes the predictions generated for individual image patches and combines them
+    to create a unified prediction for the whole image. It adjusts the bounding boxes from patch-local
+    coordinates to the original image coordinates, and then rescales the boxes based on the 
+    original image size.
+
+    Args:
+        size_factor (float): The factor by which the original image was resized before patching.
+        patches (list): A list of bounding boxes (x1, y1, x2, y2) representing the coordinates of each patch 
+                        in the original image.
+        predictions (list): A list of dictionaries, where each dictionary contains the predictions 
+                            for a single patch. Each dictionary should have the keys 'boxes', 'labels', 
+                            and 'scores'.
+
+    Returns:
+        dict[str, np.ndarray]: A dictionary containing:
+            - boxes: A NumPy array of shape (N, 4) representing the merged bounding boxes in the original 
+                    image coordinates.
+            - labels: A NumPy array of shape (N,) representing the corresponding labels for the merged boxes.
+            - scores: A NumPy array of shape (N,) representing the corresponding confidence scores for the 
+                    merged boxes.
+    """
     boxes = []
     labels = []
     scores = []
@@ -193,8 +217,17 @@ def postprocess(
     score_thresh,
     iou_thresh,
 ):
-    """
+    """Post-processes object detection predictions.
 
+    This function performs post-processing on the output of an object detection model. It filters
+    detections based on a score threshold, applies Weighted Boxes Fusion (WBF) for non-maximum suppression,
+    and selects the top-k detections.
+
+    Args:
+        predictions (dict): A dictionary containing the 'boxes', 'scores', and 'labels' predicted by the model.
+        pre_wbf_detections (int): The number of top detections to keep before applying WBF.
+        score_thresh (float): The minimum score threshold for a detection to be considered.
+        iou_thresh (float): The IoU threshold for WBF.
 
     Returns:
         dict[str, np.ndarray]: A dictionary containing the post-processed 'boxes', 'scores', and 'labels'
@@ -230,62 +263,36 @@ def postprocess(
 
     return {"boxes": boxes, "scores": scores, "labels": labels}
 
-
-@torch.no_grad()
-def preprocess(size_factor,patch_size,patch_overlap,image):
-
-    if isinstance(image, str):
-        image = PIL.Image.open(image)
-
-    if isinstance(image, Image):
-        image = F.to_image(image)
-
-    ht, wd = image.shape[-2:]
-    ht = int(ht * size_factor)
-    wd = int(wd * size_factor)
-
-    padded_width, padded_height, patches = make_patches(
-        wd, ht, patch_size, patch_overlap
-    )
-
-    image = F.resize(image, size=[ht, wd])
-    image = F.pad(
-        image, padding=[0, 0, padded_width - wd, padded_height - ht], fill=0.0
-    )
-    image = F.to_dtype(image, dtype=torch.float32, scale=True)
-
-    patched_images = torch.stack(
-        [F.crop(image, y1, x1, y2 - y1, x2 - x1) for (x1, y1, x2, y2) in patches]
-    )
-
-    return patches, patched_images
-
 class Predictor:
+    """
+    Performs object detection predictions using a FasterRCNN model with support for image patching.
+
+    This class handles the entire prediction pipeline, including preprocessing images 
+    (potentially splitting them into patches), applying the model, and post-processing the results.
+    """
 
     def __init__(
         self,
-        model,
-        device,
-        image_size_factor=1,
-        pre_wbf_detections=2500,
-        detections_per_patch=300,
-        patches_per_batch=4,
-        patch_size=1024,
-        patch_overlap=0.2,
+        model: torch.nn.Module,
+        device: torch.device,
+        image_size_factor: float = 1,
+        pre_wbf_detections: int = 2500,
+        detections_per_patch: int = 300,
+        patches_per_batch: int = 4,
+        patch_size: int = 1024,
+        patch_overlap: float = 0.2,
     ):
         """
         Initialize the Predictor class.
 
-        This class is designed to handle object detection predictions using a FasterRCNN model,
-        with support for image patching and batch processing.
-
         Args:
-            model (FasterRCNN): The FasterRCNN model to be used for predictions.
+            model (torch.nn.Module): The FasterRCNN model to be used for predictions.
             device (torch.device): The device (CPU/GPU) on which to run the model.
-            images_per_batch (int, optional): Number of images to process in each batch. Defaults to 4.
             image_size_factor (float, optional): Factor to resize input images. Defaults to 1.
-            detections_per_image (int, optional): Maximum number of detections to return per image. Defaults to 300.
-            detections_per_patch (int, optional): Maximum number of detections to return per image patch. Defaults to 100.
+            pre_wbf_detections (int, optional): Maximum number of detections to keep before applying 
+                                                Weighted Boxes Fusion (WBF). Defaults to 2500.
+            detections_per_patch (int, optional): Maximum number of detections to return per image patch. 
+                                                Defaults to 300.
             patches_per_batch (int, optional): Number of patches to process in each batch. Defaults to 4.
             patch_size (int, optional): Size of each image patch. Defaults to 1024.
             patch_overlap (float, optional): Overlap between adjacent patches. Defaults to 0.2.
@@ -305,91 +312,89 @@ class Predictor:
         self, image, iou_thresh, score_thresh
     ):
         """
-        Generate predictions for an image or a set of images using the model.
+        Generate predictions for an image using the model.
 
-        This method efficiently processes input image, applies the object detection model,
+        This method processes the input image, applies the object detection model,
         and post-processes the results to produce predictions.
 
         Args:
-            image (Image | torch.Tensor | str): 
-                The input image. Provided as PIL Image, torch Tensor or a file path.
-            iou_thresh (float): 
-                The Intersection over Union (IoU) threshold used for merging or filtering 
-                overlapping detections.
-            score_thresh (float): 
-                The confidence score threshold used to filter out low-confidence detections.
+            image (Image.Image | torch.Tensor | str): The input image. Provided as PIL Image, 
+                                                        torch Tensor or a file path.
+            iou_thresh (float): The Intersection over Union (IoU) threshold used for merging or filtering 
+                                overlapping detections.
+            score_thresh (float): The confidence score threshold used to filter out low-confidence detections.
+
         Returns:
-            dict[str, np.array]: A dictionary where:
+            dict[str, np.array]: A dictionary containing:
                 - 'boxes': Bounding boxes of detected objects.
                 - 'scores': Confidence scores for each detection.
                 - 'labels': Predicted class labels for each detection.
         """
 
-        self.model.roi_heads.score_thresh = 0.05 # Minimal post proccesing for performance
-        self.model.roi_heads.nms_thresh = 0.7 # Minimal pytorch-built post proccesing for performance
-        
+        self.model.roi_heads.score_thresh = 0.05  # pytorch-builtin post-processing for performance
+        self.model.roi_heads.nms_thresh = 0.7  # pytorch-builtin post-processing
+
         self.model.roi_heads.detections_per_img = self.detections_per_patch
         self.model.eval()
-        
+
         predictions = []
-        patches, patched_images = preprocess(self.image_size_factor, self.patch_size, self.patch_overlap, image)
+        patches, patched_images = preprocess(
+            self.image_size_factor, self.patch_size, self.patch_overlap, image
+        )
         for b_imgs in torch.split(patched_images, self.patches_per_batch):
             b_imgs = b_imgs.to(self.device)
             with torch.autocast(device_type=self.device.type, dtype=torch.float16):
                 predictions.extend(self.model(b_imgs))
         predictions = merge_patches(self.image_size_factor, patches, predictions)
-        
+
         predictions = postprocess(
-            predictions,
-            self.pre_wbf_detections,
-            score_thresh,
-            iou_thresh,
+            predictions, self.pre_wbf_detections, score_thresh, iou_thresh
         )
 
         return predictions
-    
-    
+
     @torch.no_grad()
     def get_predictions(
-        self, images, iou_thresh, score_thresh
+        self,
+        images,
+        iou_thresh,
+        score_thresh,
     ):
         """
-        Generate predictions for an image or a set of images using the model.
+        Generate predictions for a single image or a set of images.
 
         This method efficiently processes input images, applies the object detection model,
         and post-processes the results to produce a dictionary of predictions.
 
         Args:
-            images (list[Image | torch.Tensor | str] | Dataset | Image | torch.Tensor | str): 
+            images (list[Image.Image | torch.Tensor | str] | Dataset | Image.Image | torch.Tensor | str): 
                 The input image(s) to process. Can be a single image or a list of images, 
                 provided as PIL Images, torch Tensors, file paths, or a Dataset.
-            iou_thresh (float): 
-                The Intersection over Union (IoU) threshold used for merging or filtering 
-                overlapping detections.
-            score_thresh (float): 
-                The confidence score threshold used to filter out low-confidence detections.
+            iou_thresh (float): The Intersection over Union (IoU) threshold used for merging or filtering 
+                                overlapping detections.
+            score_thresh (float): The confidence score threshold used to filter out low-confidence detections.
 
         Returns:
-            dict[int, dict[str, np.array]]: A dictionary where:
-                - Keys are image ids
-                - Values are dictionaries containing the following numpy arrays:
+            dict[int, dict[str, np.array]] | None: A dictionary where:
+                - Keys are image ids.
+                - Values are dictionaries containing:
                     - 'boxes': Bounding boxes of detected objects.
                     - 'scores': Confidence scores for each detection.
                     - 'labels': Predicted class labels for each detection.
-            if a single image provided only single prediction returned (not a dictionary)
-            
+                If a single image is provided, only a single prediction is returned (not a dictionary). 
+                Returns None if no predictions are generated.
         """
 
-        single = isinstance(images, (torch.Tensor, Image, str))
+        single = isinstance(images, (torch.Tensor, Image.Image, str))
         images = [images] if single else images
         result = {}
-        
+
         for idx, image in enumerate(images):
-            if isinstance(images, Dataset):
+            if isinstance(images, torch.utils.data.Dataset):
                 image, target = image
                 idx = target["image_id"]
-                
+
             predictions = self.predict(image, iou_thresh, score_thresh)
             result[idx] = predictions
-        
+
         return result if not single else next(iter(result.values()), None)
