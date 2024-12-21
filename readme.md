@@ -87,10 +87,35 @@ python infer_run.py model.pth images/ \
     --save_images \
 ```
 
+## Accuracy 
+
+With default parameters, the tool showed an AP of 0.529, a Precision of 0.665, and a Recall of 0.625. If you are interested only in detecting the nodules and not classifying them as healthy or necrotic, these metrics increase to 0.647, 0.748, and 0.72, respectively.
+
 ## Notes
 
 - Area calculations use elliptical approximation (π * width/2 * height/2) for each bounding box predicted.
 - You also can finetune your own model by using the train.ipynb
 
 ## License
-Currently no license, but I will change it
+
+MIT License
+
+Copyright (c) 2024 Maksim Vinokur
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
