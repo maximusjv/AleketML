@@ -1,6 +1,5 @@
-.venv
+*venv*
 *dataset*
-.wslvenv
 result*
 __pycache__
 .idea

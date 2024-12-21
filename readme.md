@@ -21,6 +21,7 @@ For better performance it's highly recommended to have gpu compatible with ndivi
 
 For more details: https://developer.nvidia.com/cuda-toolkit
 
+Trained model can be found on: [Google drive](https://drive.google.com/file/d/133G4ytupqJQYqZ6LV1Cjs0I1Rj1Vdrun/view?usp=drive_link)
 ## Usage
 
 ```bash
