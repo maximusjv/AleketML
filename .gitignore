@@ -8,3 +8,4 @@ __pycache__
 model.pth
 output/
 *eval*/
+AleketML.code-workspace
