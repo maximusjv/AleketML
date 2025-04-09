@@ -1,11 +1,17 @@
-*venv*
-*dataset*
-result*
-__pycache__
+# IDE
 .idea
-*statistics*
-.ipynb_checkpoints
-model.pth
-output/
-*eval*/
 AleketML.code-workspace
+
+# Python
+*venv*
+__pycache__
+
+# Results
+result*
+statistics*
+output/
+runs/
+
+# Models
+model.pth
+yolo*.pt

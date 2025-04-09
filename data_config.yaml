@@ -1,0 +1,9 @@
+path: ../datasets/orobanche_cummana
+
+train: ./autosplit_train.txt
+val: ./autosplit_val.txt # 128 images for validation
+
+names:
+  0: placeholder
+  1: healthy
+  2: necrotic
