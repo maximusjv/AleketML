@@ -12,12 +12,14 @@ class Patch:
         ymax (int): The y-coordinate of the bottom-right corner of the patch.
     """
 
-    def __init__(self, xmin: int, ymin: int, xmax: int, ymax: int):
+    def __init__(self, xmin: int, ymin: int, xmax: int, ymax: int, padded_shape: tuple[int, int]):
         self.xmin = xmin
         self.ymin = ymin
         self.xmax = xmax
         self.ymax = ymax
         
+        self.padded_shape = padded_shape
+                
     def clamp_box(self, bbox: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
         relative_bbox = (
             max(self.xmin, bbox[0]) - self.xmin,  
@@ -78,6 +80,6 @@ def make_patches(width: int, height: int, patch_size: int, overlap: float) -> tu
             xmax, ymax = xmin + patch_size, ymin + patch_size
             patch_box = (xmin, ymin, xmax, ymax)
 
-            patches.append(Patch(*patch_box))
+            patches.append(Patch(*patch_box, (padded_height, padded_width)))
 
     return padded_width, padded_height, patches

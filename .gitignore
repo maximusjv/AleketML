@@ -1,6 +1,7 @@
 # IDE
 .idea
 AleketML.code-workspace
+.vscode
 
 # Python
 *venv*
