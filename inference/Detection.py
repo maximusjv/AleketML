@@ -111,7 +111,6 @@ def _box_inter_over_small(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.T
     return inter / small
 
 
-# Optimized WeightedBoxesFusionProccessor: Vectorized IoU calculations
 class WeightedBoxesFusionProccessor(torch.nn.Module):
     def __init__(
         self, pre_wbf_detections: int, wbf_ios_thresh: float, post_wbf_detections: int
