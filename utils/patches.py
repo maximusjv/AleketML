@@ -15,15 +15,13 @@ class Patch:
     """
 
     def __init__(
-        self, xmin: int, ymin: int, xmax: int, ymax: int, padded_shape: tuple[int, int]
+        self, xmin: int, ymin: int, xmax: int, ymax: int,
     ):
         self.xmin = xmin
         self.ymin = ymin
         self.xmax = xmax
         self.ymax = ymax
 
-        
-        self.padded_shape = padded_shape
         
     @property
     def box(self):
@@ -97,6 +95,6 @@ def make_patches(
             xmax, ymax = xmin + patch_size, ymin + patch_size
             patch_box = (xmin, ymin, xmax, ymax)
 
-            patches.append(Patch(*patch_box, (padded_height, padded_width)))
+            patches.append(Patch(*patch_box))
 
     return padded_width, padded_height, patches

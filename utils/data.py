@@ -193,7 +193,7 @@ def autosplit_detect(
     for filename in os.listdir(image_dir):
         if filename.lower().endswith((".jpg", ".jpeg", ".png")):
             origin_image = "_".join(filename.split("_")[:-1])  # Remove the patch number
-            grouped_patches[origin_image].append(os.path.join("images", filename))
+            grouped_patches[origin_image].append("./" + os.path.join("images", filename).replace("\\", "/"))
 
     origin_keys = list(grouped_patches.keys())
     random.shuffle(origin_keys)

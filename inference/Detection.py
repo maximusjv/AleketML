@@ -193,6 +193,7 @@ class Detector:
         max_detections: int = 1000,
         single_cls: bool = True,
     ):
+        self.single_cls = single_cls
         self.device = device
         self.conf = conf_thresh
         self.iou = nms_iou_thresh
@@ -213,7 +214,7 @@ class Detector:
             iou=self.iou,
             max_det=self.max_det,
             imgsz=self.imgsz,
-            device=self.device
+            device=self.device,
         )
         preds_boxes = [res.boxes.data.clone() for res in preds_result]
         preds_boxes = self.postproccessor.forward((patches, preds_boxes))
@@ -225,6 +226,6 @@ class Detector:
                 self.yolo.model.module.names
                 if hasattr(self.yolo.model, "module")
                 else self.yolo.model.names
-            ) if not self.postproccessor.single_cls else {0: "object"},
+            ) if not self.single_cls else {0: "object"},
             boxes=preds_boxes,
         )

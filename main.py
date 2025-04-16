@@ -1,17 +1,23 @@
-from inference_pipeline.Detection import Detection
+from inference.Detection import Detector
+from inference.Classification import Classificator
+from inference.Inference import Inference
+
+from PIL import Image
 
 def main():
-    detector = Detection("yolo11n.pt")
-    im = "C:\\Users\\maksi\\Documents\\AleketML\\venv\\Lib\\site-packages\\ultralytics\\assets\\zidane.jpg"
-    result = detector.forward(
-        im
+    detector = Detector(0, "runs/detect/train16/weights/best.pt")
+    classificator = Classificator(0, "runs/classify/train3/weights/best.pt")
+    inference = Inference(detector, classificator, 0.2)
+    
+    im = "C:\\Users\\maksi\\Documents\\dataset_full_images\\imgs\\26.jpeg"
+    result = inference.forward(
+        Image.open(im)
     )
-    result.plot(show=True, pil=True)
+    result.plot(show=True, font_size=10, line_width=2)
 
     result = detector.yolo.predict(source=im)
-    result[0].plot(show=True)
+    result[0].plot(show=True, font_size=10, line_width=2)
     
-    print(result)
 
 
 if __name__ == "__main__":
