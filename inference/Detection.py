@@ -8,17 +8,9 @@ from ultralytics.engine.results import Results
 from utils.patches import Patch, make_patches, crop_patches
 
 
-# Utility function to load an image
-def load(image: str | Image.Image) -> Image.Image:
-    if isinstance(image, str):
-        image = Image.open(image)
-    return image
-
-
 # Resizer class (unchanged, as it’s efficient with PIL)
-class Resizer(torch.nn.Module):
+class Resizer:
     def __init__(self, size_factor: float):
-        super().__init__()
         self.size_factor = size_factor
 
     def forward(self, x: Image.Image) -> Image.Image:
@@ -29,9 +21,8 @@ class Resizer(torch.nn.Module):
 
 
 # Optimized Patcher: Returns a batched tensor instead of a list of PIL images
-class Patcher(torch.nn.Module):
+class Patcher:
     def __init__(self, patch_size: int, overlap: float):
-        super().__init__()
         self.patch_size = patch_size
         self.overlap = overlap
 
@@ -55,24 +46,21 @@ class Patcher(torch.nn.Module):
 
 
 # Preprocessor: Updated to handle batched tensor output
-class Preprocessor(torch.nn.Module):
+class Preprocessor:
     def __init__(self, patch_size: int, overlap: float, size_factor: float):
-        super().__init__()
         self.resizer = Resizer(size_factor)
         self.patcher = Patcher(patch_size, overlap)
 
     @torch.no_grad()
-    def forward(self, x: str | Image.Image) -> tuple[list[Patch], torch.Tensor]:
-        x = load(x)
-        x = self.resizer(x)
-        patches, batch_tensor = self.patcher(x)
+    def forward(self, x: Image.Image) -> tuple[list[Patch], torch.Tensor]:
+        x = self.resizer.forward(x)
+        patches, batch_tensor = self.patcher.forward(x)
         return patches, batch_tensor
 
 
 # PatchMerger (unchanged, as it’s reasonably efficient for now)
-class PatchMerger(torch.nn.Module):
+class PatchMerger:
     def __init__(self, size_factor: float):
-        super().__init__()
         self.size_factor = size_factor
 
     def forward(self, x: tuple[list[Patch], list[torch.Tensor]]) -> torch.Tensor:
@@ -107,11 +95,10 @@ def _box_inter_over_small(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.T
     return inter / small
 
 
-class WeightedBoxesFusionProccessor(torch.nn.Module):
+class WeightedBoxesFusionProccessor:
     def __init__(
         self, pre_wbf_detections: int, wbf_ios_thresh: float, post_wbf_detections: int
     ):
-        super().__init__()
         self.pre_wbf_detections = pre_wbf_detections
         self.ios_thresh = wbf_ios_thresh
         self.post_wbf_detections = post_wbf_detections
@@ -165,15 +152,16 @@ class WeightedBoxesFusionProccessor(torch.nn.Module):
 
 
 # Postprocessor (unchanged, integrates optimized components)
-class Postprocessor(torch.nn.Module):
+class Postprocessor:
     def __init__(
         self,
         size_factor: float,
         pre_wbf_detections: int,
         wbf_ios_thresh: float, #intresection over small
         max_detections: int,
+        single_cls: bool,
     ):
-        super().__init__()
+        self.single_cls = single_cls
         self.merger = PatchMerger(size_factor)
         self.wbf = WeightedBoxesFusionProccessor(
             pre_wbf_detections, wbf_ios_thresh, max_detections
@@ -181,12 +169,14 @@ class Postprocessor(torch.nn.Module):
 
     @torch.no_grad()
     def forward(self, x: tuple[list[Patch], list[torch.Tensor]]) -> torch.Tensor:
-        boxes = self.merger(x)
-        return self.wbf(boxes)
+        boxes = self.merger.forward(x)
+        if self.single_cls:
+            boxes[:, 5] = 0
+        return self.wbf.forward(boxes)
 
 
 # Optimized Detection class: Passes parameters to YOLO predict
-class Detection(torch.nn.Module):
+class Detector:
     def __init__(
         self,
         device: int | str | list,
@@ -201,8 +191,8 @@ class Detection(torch.nn.Module):
         pre_wbf_detections: int = 3000,
         wbf_ios_thresh: float = 0.5,
         max_detections: int = 1000,
+        single_cls: bool = True,
     ):
-        super().__init__()
         self.device = device
         self.conf = conf_thresh
         self.iou = nms_iou_thresh
@@ -212,12 +202,11 @@ class Detection(torch.nn.Module):
         self.preprocessor = Preprocessor(patch_size, overlap, size_factor)
         self.yolo = YOLO(model_path, task="detect")
         self.postproccessor = Postprocessor(
-            size_factor, pre_wbf_detections, wbf_ios_thresh, max_detections
+            size_factor, pre_wbf_detections, wbf_ios_thresh, max_detections, single_cls
         )
 
-    def forward(self, x):
-        image = load(x)
-        patches, batch_tensor = self.preprocessor.forward(x)
+    def forward(self, image: Image.Image):
+        patches, batch_tensor = self.preprocessor.forward(image)
         preds_result = self.yolo.predict(
             source=batch_tensor,
             conf=self.conf,
@@ -231,11 +220,11 @@ class Detection(torch.nn.Module):
 
         return Results(
             np.asarray(image)[..., ::-1],
-            "somePath",
+            "",
             (
                 self.yolo.model.module.names
                 if hasattr(self.yolo.model, "module")
                 else self.yolo.model.names
-            ),
+            ) if not self.postproccessor.single_cls else {0: "object"},
             boxes=preds_boxes,
         )
