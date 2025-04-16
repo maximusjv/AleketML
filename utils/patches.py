@@ -1,5 +1,7 @@
 import math
+import numpy as np
 from PIL.Image import Image
+
 
 class Patch:
     """
@@ -12,36 +14,51 @@ class Patch:
         ymax (int): The y-coordinate of the bottom-right corner of the patch.
     """
 
-    def __init__(self, xmin: int, ymin: int, xmax: int, ymax: int, padded_shape: tuple[int, int]):
+    def __init__(
+        self, xmin: int, ymin: int, xmax: int, ymax: int, padded_shape: tuple[int, int]
+    ):
         self.xmin = xmin
         self.ymin = ymin
         self.xmax = xmax
         self.ymax = ymax
+
         
         self.padded_shape = padded_shape
-                
+        
+    @property
+    def box(self):
+        return (self.xmin, self.ymin, self.xmax, self.ymax)
+
     def clamp_box(self, bbox: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
         relative_bbox = (
-            max(self.xmin, bbox[0]) - self.xmin,  
-            max(self.ymin, bbox[1]) - self.ymin,  
-            min(self.xmax, bbox[2]) - self.xmin,  
+            max(self.xmin, bbox[0]) - self.xmin,
+            max(self.ymin, bbox[1]) - self.ymin,
+            min(self.xmax, bbox[2]) - self.xmin,
             min(self.ymax, bbox[3]) - self.ymin,
         )
         return relative_bbox
-    
-    def crop(self, image: Image) -> Image:
-        """
-        Crop the image to the patch size.
-        Args:
-            image (Image): The image to crop.
 
-        Returns:
-            Image: The cropped image.
-        """
-        return image.crop((self.xmin, self.ymin, self.xmax, self.ymax))
-     
+def expand_patch(patch: Patch, offset: float):
+    x1, y1, x2, y2 = patch.box
+    w, h = x2 - x1, y2 - y1
+    o_w, o_h = w * offset, h * offset
+    return Patch(x1 - o_w, y1 - o_h, x2 + o_w, y2 + o_h)
 
-def make_patches(width: int, height: int, patch_size: int, overlap: float) -> tuple[int, int, list[Patch]]:
+def crop_patches(
+    image: Image | np.ndarray, patches: list[Patch]
+) -> list[np.ndarray | Image]:
+    if isinstance(image, Image):
+        return [image.crop(patch.box) for patch in patches]
+    else:
+        return [
+            image[patch.ymin : patch.ymax, patch.xmin : patch.xmax, :]
+            for patch in patches
+        ]
+
+
+def make_patches(
+    width: int, height: int, patch_size: int, overlap: float
+) -> tuple[int, int, list[Patch]]:
     """
     Create a grid of overlapping patches for an image.
 

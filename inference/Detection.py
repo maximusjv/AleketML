@@ -5,7 +5,7 @@ import torchvision.ops as ops
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
-from utils.patches import Patch, make_patches
+from utils.patches import Patch, make_patches, crop_patches
 
 
 # Utility function to load an image
@@ -45,10 +45,7 @@ class Patcher(torch.nn.Module):
         padded_np = np.array(padded_img)  # Shape: (padded_height, padded_width, 3)
 
         # Extract patches efficiently using list comprehension
-        patch_arrays = [
-            padded_np[patch.ymin : patch.ymax, patch.xmin : patch.xmax, :]
-            for patch in patches
-        ]
+        patch_arrays = crop_patches(padded_np, patches)
         batch_np = np.stack(patch_arrays)  # Shape: (N, patch_size, patch_size, 3)
         batch_tensor = (
             torch.from_numpy(batch_np).permute(0, 3, 1, 2).float() / 255.0
@@ -89,7 +86,6 @@ class PatchMerger(torch.nn.Module):
         pred_boxes = torch.stack(boxes)
         pred_boxes[:, [0, 1, 2, 3]] /= self.size_factor
         return pred_boxes
-
 
 
 def _box_inter(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
@@ -193,6 +189,7 @@ class Postprocessor(torch.nn.Module):
 class Detection(torch.nn.Module):
     def __init__(
         self,
+        device: int | str | list,
         model_path: str,
         overlap: float = 0.2,
         patch_size: int = 1024,
@@ -206,6 +203,7 @@ class Detection(torch.nn.Module):
         max_detections: int = 1000,
     ):
         super().__init__()
+        self.device = device
         self.conf = conf_thresh
         self.iou = nms_iou_thresh
         self.max_det = max_patch_detections
@@ -226,6 +224,7 @@ class Detection(torch.nn.Module):
             iou=self.iou,
             max_det=self.max_det,
             imgsz=self.imgsz,
+            device=self.device
         )
         preds_boxes = [res.boxes.data.clone() for res in preds_result]
         preds_boxes = self.postproccessor.forward((patches, preds_boxes))
