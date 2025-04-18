@@ -4,7 +4,7 @@ import os
 import random
 from PIL import Image, ImageDraw
 from tqdm import tqdm
-from utils.data import autosplit_detect, remove_background_images, setup_directories
+from utils.data import autosplit_detect, load_yolo_annotations, remove_background_images, setup_directories
 from utils.patches import make_patches, crop_patches
 
 def box_area(box: list[int]) -> float: 
@@ -79,50 +79,11 @@ def patch_yolo_dataset(config: dict):
     # Setup directories
     setup_directories(config)
     
-    # Get list of all image files
-    image_dir = os.path.join(config["source"], "images")
-    label_dir = os.path.join(config["source"], "labels")
+    annotations = load_yolo_annotations(config["source"])
     
-    image_files = [f for f in os.listdir(image_dir) 
-                  if f.lower().endswith(('.jpeg'))]
-    
-    # Process each image
-    for image_file in tqdm(image_files, desc="Processing images for patching"):
-        image_name = os.path.splitext(image_file)[0]
-        label_file = os.path.join(label_dir, f"{image_name}.txt")
-        
-        # Only process images that have corresponding label files
-        if not os.path.exists(label_file):
-            continue
-            
-        # Load image to get dimensions
-        image_path = os.path.join(image_dir, image_file)
-        image = Image.open(image_path)
-        img_width, img_height = image.size
-        
-        # Read annotations from YOLO format file
-        annotations = {"category_id": [], "boxes": []}
-        
-        if os.path.exists(label_file):
-            with open(label_file, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        parts = line.strip().split()
-                        if len(parts) == 5:
-                            cat = int(parts[0])
-                            x_center, y_center, width, height = map(float, parts[1:])
-                            
-                            # Convert YOLO format back to absolute coordinates (x1, y1, x2, y2)
-                            x1 = (x_center - width/2) * img_width
-                            y1 = (y_center - height/2) * img_height
-                            x2 = (x_center + width/2) * img_width
-                            y2 = (y_center + height/2) * img_height
-                            
-                            annotations["category_id"].append(cat)
-                            annotations["boxes"].append([x1, y1, x2, y2])
-        
+    for image_name, annots in annotations.items():      
         # Process the image for patching
-        process_image_for_patching(image_name, annotations, config)
+        process_image_for_patching(image_name, annots, config)
     
     if config["image_move"]:
         remove_background_images(config["destination"], config["background_removal"])

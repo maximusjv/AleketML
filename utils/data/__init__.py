@@ -3,8 +3,9 @@ import os
 import random
 import shutil
 import zipfile
-
+from PIL import Image
 import gdown
+from tqdm import tqdm
 
 def gdownload(url: str):
     """
@@ -130,6 +131,59 @@ def remove_background_images(root_dir: str, removal_percentage: float):
             os.remove(label_file)
 
     print(f"Removed {len(to_remove)} background images.")
+
+def xyxy_to_xywh_center(bbox):
+  x1, y1, x2, y2 = bbox
+  w = x2 - x1
+  h = y2 - y1
+  xc = x1 + w / 2
+  yc = y1 + h / 2
+  return xc, yc, w, h
+
+def load_yolo_annotations(root_dir: str) -> dict:
+    
+    image_dir = os.path.join(root_dir, "images")
+    label_dir = os.path.join(root_dir, "labels")
+    
+    image_files = [f for f in os.listdir(image_dir) 
+                  if f.lower().endswith(('.jpeg'))]
+    
+    annotations = {}
+       
+    for image_file in tqdm(image_files, desc="Processing images for patching"):
+        image_name = os.path.splitext(image_file)[0]
+        label_file = os.path.join(label_dir, f"{image_name}.txt")
+        
+        # Only process images that have corresponding label files
+        if not os.path.exists(label_file):
+            continue
+            
+        # Load image to get dimensions
+        image_path = os.path.join(image_dir, image_file)
+        image = Image.open(image_path)
+        img_width, img_height = image.size
+     
+        annotations[image_name] = { "category_id": [], "boxes": []}
+        
+        if os.path.exists(label_file):
+            with open(label_file, 'r') as f:
+                for line in f:
+                    if line.strip():
+                        parts = line.strip().split()
+                        if len(parts) == 5:
+                            cat = int(parts[0])
+                            x_center, y_center, width, height = map(float, parts[1:])
+                            
+                            # Convert YOLO format back to absolute coordinates (x1, y1, x2, y2)
+                            x1 = (x_center - width/2) * img_width
+                            y1 = (y_center - height/2) * img_height
+                            x2 = (x_center + width/2) * img_width
+                            y2 = (y_center + height/2) * img_height
+                            
+                            annotations[image_name]["category_id"].append(cat)
+                            annotations[image_name]["boxes"].append([x1, y1, x2, y2])
+                            
+    return annotations
 
 from .converting_to_yolo import prepare_yolo_dataset
 from .detection_to_classification import prepare_classification_dataset

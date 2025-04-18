@@ -35,7 +35,8 @@ def main():
     
     # Phase 3: Create classification dataset from patched YOLO dataset
     print("Phase 3: Creating classification dataset from patched YOLO dataset...")
-    prepare_classification_dataset(CONFIG, patched_dir)
+    CONFIG["source"] = patched_dir
+    prepare_classification_dataset(CONFIG)
     
     print("All processing completed!")
 

@@ -6,6 +6,8 @@ from PIL import Image
 from tqdm import tqdm
 from statistics import mean
 
+from utils.data import load_yolo_annotations, xyxy_to_xywh_center
+
 def box_area(box: list[int]) -> float: 
     """Calculate area of a bounding box in XYXY format."""
     x1, y1, x2, y2 = box
@@ -41,7 +43,12 @@ def load_split_list(split_path):
         return [line.strip() for line in f if line.strip()]
     
 
-def save_crop(image, box_coords, dest_dir, class_label, base_name, crop_index):
+def save_crop(image: Image.Image,
+              box_coords,
+              dest_dir,
+              class_label: str,
+              base_name,
+              crop_index):
     """
     Crop the image using box_coords and save it in a folder named after the class.
     """
@@ -49,10 +56,10 @@ def save_crop(image, box_coords, dest_dir, class_label, base_name, crop_index):
     target_folder = os.path.join(dest_dir, str(class_label))
     os.makedirs(target_folder, exist_ok=True)
     save_path = os.path.join(target_folder, f"{base_name}_{crop_index}.jpg")
-    crop.save(save_path)
+    crop.save(save_path, quality=100)
 
 
-def process_detection_crops(image: Image.Image, label_path: str, dest_dir: str, offset: float, classes: dict):
+def process_detection_crops(image: Image.Image, base_name: str, annotations: dict, dest_dir: str, offset: float, classes: dict):
     """
     Process detection boxes from a given label file:
       - Apply an optional offset.
@@ -66,33 +73,28 @@ def process_detection_crops(image: Image.Image, label_path: str, dest_dir: str, 
     img_width, img_height = image.size
     det_boxes = []
     class_counts = defaultdict(int)
-    with open(label_path, "r") as f:
-        lines = [line.strip() for line in f if line.strip()]
 
-    for idx, line in enumerate(lines):
-        parts = line.split()
-        if len(parts) != 5:
-            continue
+    for idx, (class_id, box) in enumerate(annotations):
+    
 
-        class_id = parts[0]
         # YOLO normalized values: x_center, y_center, width, height
-        x_center, y_center, box_width, box_height = map(float, parts[1:])
+        x_center, y_center, box_width, box_height = xyxy_to_xywh_center(box)
         # Apply offset
         box_width *= (1 + offset)
         box_height *= (1 + offset)
         # Convert normalized coordinates to absolute pixel coordinates
-        x1 = int((x_center - box_width / 2) * img_width)
-        y1 = int((y_center - box_height / 2) * img_height)
-        x2 = int((x_center + box_width / 2) * img_width)
-        y2 = int((y_center + box_height / 2) * img_height)
+        x1 = int((x_center - box_width / 2))
+        y1 = int((y_center - box_height / 2))
+        x2 = int((x_center + box_width / 2))
+        y2 = int((y_center + box_height / 2))
         # Clamp coordinates to image boundaries
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(img_width, x2), min(img_height, y2)
         box_abs = (x1, y1, x2, y2)
         det_boxes.append(box_abs)
+        
         class_counts[class_id] += 1
 
-        base_name = os.path.splitext(os.path.basename(label_path))[0]
         save_crop(image, box_abs, dest_dir, classes.get(class_id, class_id), base_name, idx)
 
     return det_boxes, class_counts
@@ -183,17 +185,18 @@ def prepare_classification_dataset(config: dict):
     bg_iou_threshold: float = config["bg_iou_threshold"]
     bg_attempts_multiplier: int = 10
     
+    annotations = load_yolo_annotations(source_dir)
+    
     for split_name, split_file in split_files.items():
         image_paths = load_split_list(split_file)
         print(f"Processing {split_name} split with {len(image_paths)} images.")
 
         for rel_img_path in tqdm(image_paths, desc=f"Processing {split_name}"):
+            
             image_path = os.path.join(os.path.dirname(source_dir), rel_img_path)
-            # Assume the label file shares the same base name in a "labels" folder.
-            label_filename = os.path.splitext(os.path.basename(rel_img_path))[0] + ".txt"
-            label_path = os.path.join(source_dir, "labels", label_filename)
-
-            if not os.path.exists(label_path):
+            image_name = os.path.splitext(os.path.basename(image_path))[0]
+            
+            if annotations[image_name]["category_id"]:
                 continue
 
             try:
@@ -207,7 +210,7 @@ def prepare_classification_dataset(config: dict):
             os.makedirs(split_dest_dir, exist_ok=True)
 
             # Process detection crops: save crops and record bounding boxes.
-            det_boxes, class_counts = process_detection_crops(image, label_path, split_dest_dir, offset, classes)
+            det_boxes, class_counts = process_detection_crops(image,base_name, annotations[image_name], split_dest_dir, offset, classes)
 
             # Generate background crops, if there are detections.
             if det_boxes:
