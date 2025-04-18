@@ -13,31 +13,44 @@ class Patch:
         xmax (int): The x-coordinate of the bottom-right corner of the patch.
         ymax (int): The y-coordinate of the bottom-right corner of the patch.
     """
-
+        
     def __init__(
         self, xmin: int, ymin: int, xmax: int, ymax: int,
     ):
-        self.xmin = xmin
-        self.ymin = ymin
-        self.xmax = xmax
-        self.ymax = ymax
+        self.xmin = int(xmin)
+        self.ymin = int(ymin)
+        self.xmax = int(xmax)
+        self.ymax = (ymax)
 
         
     @property
-    def box(self):
+    def xyxy(self) -> tuple[int,int,int,int]:
         return (self.xmin, self.ymin, self.xmax, self.ymax)
+    
+    @property
+    def xywh(self) -> tuple[float, float, float, float]:
+        w = self.xmax - self.xmin
+        h = self.ymax - self.ymin
+        xc = self.xmin + w / 2
+        yc = self.ymin + h / 2
+        return (xc, yc, w, h)
+    
+    @property
+    def area(self) -> float:
+        x1, y1, x2, y2 = self.xyxy
+        return max(0, x2 - x1) * max(0, y2 - y1)
 
-    def clamp_box(self, bbox: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    def clamp(self, other):
         relative_bbox = (
-            max(self.xmin, bbox[0]) - self.xmin,
-            max(self.ymin, bbox[1]) - self.ymin,
-            min(self.xmax, bbox[2]) - self.xmin,
-            min(self.ymax, bbox[3]) - self.ymin,
+            max(self.xmin, other.xmin) - self.xmin,
+            max(self.ymin, other.ymin) - self.ymin,
+            min(self.xmax, other.xmax) - self.xmin,
+            min(self.ymax, other.ymax) - self.ymin,
         )
-        return relative_bbox
+        return Patch(*relative_bbox)
     
     def expand(self, offset: float):
-        x1, y1, x2, y2 = self.box
+        x1, y1, x2, y2 = self.xyxy
         w, h = x2 - x1, y2 - y1
         o_w, o_h = w * offset, h * offset
         return Patch(x1 - o_w, y1 - o_h, x2 + o_w, y2 + o_h)
@@ -49,7 +62,7 @@ def crop_patches(
     image: Image | np.ndarray, patches: list[Patch]
 ) -> list[np.ndarray | Image]:
     if isinstance(image, Image):
-        return [image.crop(patch.box) for patch in patches]
+        return [image.crop(patch.xyxy) for patch in patches]
     else:
         return [
             image[patch.ymin : patch.ymax, patch.xmin : patch.xmax, :]

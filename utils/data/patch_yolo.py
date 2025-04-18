@@ -5,7 +5,7 @@ import random
 from PIL import Image, ImageDraw
 from tqdm import tqdm
 from . import autosplit_detect, load_yolo_annotations, setup_directories
-from .patches import make_patches, crop_patches
+from .patches import Patch, make_patches, crop_patches
 
 def remove_background_images(root_dir: str, removal_percentage: float):
     """Remove a percentage of images that have no annotations."""
@@ -32,30 +32,22 @@ def remove_background_images(root_dir: str, removal_percentage: float):
 
     print(f"Removed {len(to_remove)} background images.")
     
-def box_area(box: list[int]) -> float: 
-    """Calculate area of a bounding box in XYXY format."""
-    x1, y1, x2, y2 = box
-    return max(0, x2 - x1) * max(0, y2 - y1)
 
-# PHASE 2: Create patched dataset from YOLO dataset
-def save_patch_annotations(f, annotations, patch, config, draw_context, image_move: bool) -> bool:
+def save_patch_annotations(f, annotations: dict, patch: Patch, config: dict, draw_context: ImageDraw.ImageDraw, image_move: bool) -> bool:
     """Writes YOLO annotations to file for one patch."""
     wrote = False
     for cat, bbox in zip(annotations["category_id"], annotations["boxes"]):
-        relative_bbox = patch.clamp_box(bbox)
-        cropped_ratio = 1 - box_area(relative_bbox) / box_area(bbox)
+        bbox_patch = Patch(*bbox)
+        relative_bbox = patch.clamp(bbox_patch)
+        cropped_ratio = 1 - relative_bbox.area / bbox_patch.area
 
         if cropped_ratio > config["crop_tolerance"]:
             if cropped_ratio < 1 and config["erase_cropped"] and image_move:
                 draw_context.rectangle(relative_bbox, fill="black")
             continue
 
-        x_center = (relative_bbox[0] + relative_bbox[2]) / 2 / config["patch_size"]
-        y_center = (relative_bbox[1] + relative_bbox[3]) / 2 / config["patch_size"]
-        width = (relative_bbox[2] - relative_bbox[0]) / config["patch_size"]
-        height = (relative_bbox[3] - relative_bbox[1]) / config["patch_size"]
-
-        f.write(f"{cat} {x_center} {y_center} {width} {height}\n")
+        x, y, w, h = [n / config["patch_size"] for n in relative_bbox.xywh]
+        f.write(f"{cat} {x} {y} {w} {h}\n")
         wrote = True
 
     return wrote

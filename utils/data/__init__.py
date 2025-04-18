@@ -105,14 +105,6 @@ def autosplit_detect(
     print(f"Auto-split completed: {len(train_list)} train, {len(val_list)} val")
     return train_txt, val_txt
 
-def xyxy_to_xywh_center(bbox):
-  x1, y1, x2, y2 = bbox
-  w = x2 - x1
-  h = y2 - y1
-  xc = x1 + w / 2
-  yc = y1 + h / 2
-  return xc, yc, w, h
-
 def load_yolo_annotations(root_dir: str) -> dict:
     
     image_dir = os.path.join(root_dir, "images")
@@ -163,7 +155,7 @@ def load_yolo_annotations(root_dir: str) -> dict:
 from .converting_to_yolo import prepare_yolo_dataset
 from .detection_to_classification import prepare_classification_dataset
 from .patch_yolo import patch_yolo_dataset
-from .patches import Patch, crop_patches, make_patches, expand_patch
+from .patches import Patch, crop_patches, make_patches
 
 __all__ = ["patch_yolo_dataset", "prepare_classification_dataset", "prepare_yolo_dataset",
            "autosplit_detect", "remove_background_images", "setup_directories", "gdownload",

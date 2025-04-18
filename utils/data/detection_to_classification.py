@@ -6,24 +6,18 @@ from PIL import Image
 from tqdm import tqdm
 from statistics import mean
 
-from . import load_yolo_annotations, xyxy_to_xywh_center
+from . import load_yolo_annotations
+from .patches import Patch
 
-
-def box_area(box: list[int]) -> float:
-    """Calculate area of a bounding box in XYXY format."""
-    x1, y1, x2, y2 = box
-    return max(0, x2 - x1) * max(0, y2 - y1)
-
-
-def compute_iou(boxA, boxB):
+def compute_iou(boxA: Patch, boxB: Patch):
     """
     Compute the Intersection over Union (IoU) of two boxes.
     Boxes must be in (x1, y1, x2, y2) format.
     """
-    xA = max(boxA[0], boxB[0])
-    yA = max(boxA[1], boxB[1])
-    xB = min(boxA[2], boxB[2])
-    yB = min(boxA[3], boxB[3])
+    xA = max(boxA.xmin, boxB.xmin)
+    yA = max(boxA.ymin, boxB.ymin)
+    xB = min(boxA.xmax, boxB.xmax)
+    yB = min(boxA.ymax, boxB.ymax)
     inter_width = max(0, xB - xA)
     inter_height = max(0, yB - yA)
     inter_area = inter_width * inter_height
@@ -31,8 +25,8 @@ def compute_iou(boxA, boxB):
     if inter_area == 0:
         return 0.0
 
-    areaA = box_area(boxA)
-    areaB = box_area(boxB)
+    areaA = boxA.area
+    areaB = boxB.area
     union = areaA + areaB - inter_area
 
     return inter_area / union
@@ -45,12 +39,12 @@ def load_split_list(split_path):
 
 
 def save_crop(
-    image: Image.Image, box_coords, dest_dir, class_label: str, base_name, crop_index
+    image: Image.Image, box_coords: Patch, dest_dir, class_label: str, base_name, crop_index
 ):
     """
     Crop the image using box_coords and save it in a folder named after the class.
     """
-    crop = image.crop(box_coords)
+    crop = image.crop(box_coords.xyxy)
     target_folder = os.path.join(dest_dir, str(class_label))
     os.makedirs(target_folder, exist_ok=True)
     save_path = os.path.join(target_folder, f"{base_name}_{crop_index}.jpeg")
@@ -82,25 +76,14 @@ def process_detection_crops(
     for idx, (class_id, box) in enumerate(
         zip(annotations["category_id"], annotations["boxes"])
     ):
-
-        # YOLO normalized values: x_center, y_center, width, height
-        x_center, y_center, box_width, box_height = xyxy_to_xywh_center(box)
-        # Apply offset
-        box_width *= 1 + offset
-        box_height *= 1 + offset
-        # Convert normalized coordinates to absolute pixel coordinates
-        x1 = int((x_center - box_width / 2))
-        y1 = int((y_center - box_height / 2))
-        x2 = int((x_center + box_width / 2))
-        y2 = int((y_center + box_height / 2))
-        # Clamp coordinates to image boundaries
+        patch = Patch(*box)
+        patch.expand(offset)
+        x1, y1, x2, y2 = patch.xyxy    
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(img_width, x2), min(img_height, y2)
-        box_abs = (x1, y1, x2, y2)
+        box_abs = Patch(x1, y1, x2, y2)
         det_boxes.append(box_abs)
-
         class_counts[class_id] += 1
-
         save_crop(
             image, box_abs, dest_dir, classes.get(class_id, class_id), base_name, idx
         )
@@ -109,14 +92,14 @@ def process_detection_crops(
 
 
 def generate_background_crops(
-    image,
-    det_boxes,
-    dest_dir,
-    base_name,
-    img_size,
-    class_counts,
-    bg_iou_threshold,
-    bg_attempts_multiplier,
+    image: Image.Image,
+    det_boxes: list[Patch],
+    dest_dir: str,
+    base_name: str,
+    img_size: tuple[int,int],
+    class_counts: dict,
+    bg_iou_threshold: float,
+    bg_attempts_multiplier: int,
 ):
     """
     Generate background crops based on the mean size of detections. For each image, the number
@@ -136,8 +119,8 @@ def generate_background_crops(
     img_width, img_height = img_size
 
     # Calculate the average width and height for detection boxes.
-    widths = [box[2] - box[0] for box in det_boxes]
-    heights = [box[3] - box[1] for box in det_boxes]
+    widths = [box.xmax - box.xmin for box in det_boxes]
+    heights = [box.ymax - box.ymin for box in det_boxes]
     avg_width = int(mean(widths))
     avg_height = int(mean(heights))
 
@@ -160,7 +143,7 @@ def generate_background_crops(
 
         rand_x = random.randint(0, img_width - candidate_width)
         rand_y = random.randint(0, img_height - candidate_height)
-        candidate_box = (
+        candidate_box = Patch(
             rand_x,
             rand_y,
             rand_x + candidate_width,

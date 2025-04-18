@@ -4,7 +4,9 @@ import os
 import random
 import shutil
 from tqdm import tqdm
+
 from . import setup_directories, autosplit_detect
+from .patches import Patch
 from PIL import Image
  
 def prepare_yolo_dataset(config: dict):
@@ -42,15 +44,9 @@ def prepare_yolo_dataset(config: dict):
         with open(dest_label_path, "w") as f:
             wrote = False
             for cat, bbox in zip(annotations["category_id"], annotations["boxes"]):
-                x1, y1, x2, y2 = bbox
-                
-                # Convert to YOLO format (x_center, y_center, width, height) - normalized
-                x_center = (x1 + x2) / 2 / img_width
-                y_center = (y1 + y2) / 2 / img_height
-                width = (x2 - x1) / img_width
-                height = (y2 - y1) / img_height
-                
-                f.write(f"{cat} {x_center} {y_center} {width} {height}\n")
+                patch = Patch(*bbox)
+                x, y, w, h = patch.xywh
+                f.write(f"{cat} {x / img_width} {y / img_height} {w / img_width} {h / img_height}\n")
                 wrote = True
             
             if not wrote:

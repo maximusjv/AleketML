@@ -7,7 +7,7 @@ CONFIG = {
     "source": os.path.normpath("C:/Users/maksi/Documents/dataset_full_images"),
     "destination": os.path.normpath("C:/Users/maksi/Documents/datasets/orobanche_cummana"),
     "seed": 42,                             # Random seed for reproducibility
-    "image_move": True,                     # Whether to move images or just create annotations
+    "image_move": False,                     # Whether to move images or just create annotations
     "patch_size": 1024,                      # Size of patches
     "patch_overlap": 0.5,                   # Overlap between patches
     "crop_tolerance": 0.5,                  # Maximum allowed cropping ratio
