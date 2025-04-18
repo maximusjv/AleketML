@@ -105,6 +105,53 @@ def autosplit_detect(
     print(f"Auto-split completed: {len(train_list)} train, {len(val_list)} val")
     return train_txt, val_txt
 
+def load_split_list(split_path):
+    """Load image paths from a split file."""
+    with open(split_path, "r") as f:
+        return [line.strip() for line in f if line.strip()]
+
+def load_simple_yolo(root_dir: str) -> dict:
+    image_dir = os.path.join(root_dir, "images")
+    label_dir = os.path.join(root_dir, "labels")
+    image_files = [f for f in os.listdir(image_dir) 
+                  if f.lower().endswith(('.jpeg'))]
+    
+    annotations = {}
+    
+    for image_file in image_files:
+        image_name = os.path.splitext(image_file)[0]
+        label_file = os.path.join(label_dir, f"{image_name}.txt")
+        
+        # Load image to get dimensions
+        image_path = os.path.join(image_dir, image_file)
+        image = Image.open(image_path)
+        img_width, img_height = image.size
+     
+        annotations[image_name] = []
+        # Only process images that have corresponding label files
+        if not os.path.exists(label_file):
+            continue
+        
+        if os.path.exists(label_file):
+            with open(label_file, 'r') as f:
+                for line in f:
+                    if line.strip():
+                        parts = line.strip().split()
+                        if len(parts) == 5:
+                            cat = int(parts[0])
+                            x_center, y_center, width, height = map(float, parts[1:])
+                            
+                            # Convert YOLO format back to absolute coordinates (x1, y1, x2, y2)
+                            x1 = (x_center - width/2) * img_width
+                            y1 = (y_center - height/2) * img_height
+                            x2 = (x_center + width/2) * img_width
+                            y2 = (y_center + height/2) * img_height
+                            
+                            annotations[image_name].append([x1, y1, x2, y2, cat])
+                            
+    return annotations
+    
+    
 def load_yolo_annotations(root_dir: str) -> dict:
     
     image_dir = os.path.join(root_dir, "images")
@@ -119,8 +166,6 @@ def load_yolo_annotations(root_dir: str) -> dict:
         image_name = os.path.splitext(image_file)[0]
         label_file = os.path.join(label_dir, f"{image_name}.txt")
         
-
-            
         # Load image to get dimensions
         image_path = os.path.join(image_dir, image_file)
         image = Image.open(image_path)
@@ -151,6 +196,9 @@ def load_yolo_annotations(root_dir: str) -> dict:
                             annotations[image_name]["boxes"].append([x1, y1, x2, y2])
                             
     return annotations
+
+
+    
 
 from .converting_to_yolo import prepare_yolo_dataset
 from .detection_to_classification import prepare_classification_dataset

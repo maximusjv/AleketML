@@ -4,7 +4,7 @@ import os
 import random
 from PIL import Image, ImageDraw
 from tqdm import tqdm
-from . import autosplit_detect, load_yolo_annotations, setup_directories
+from . import autosplit_detect, load_simple_yolo, setup_directories
 from .patches import Patch, make_patches, crop_patches
 
 def remove_background_images(root_dir: str, removal_percentage: float):
@@ -33,17 +33,18 @@ def remove_background_images(root_dir: str, removal_percentage: float):
     print(f"Removed {len(to_remove)} background images.")
     
 
-def save_patch_annotations(f, annotations: dict, patch: Patch, config: dict, draw_context: ImageDraw.ImageDraw, image_move: bool) -> bool:
+def save_patch_annotations(f, annotations: list, patch: Patch, config: dict, draw_context: ImageDraw.ImageDraw, image_move: bool) -> bool:
     """Writes YOLO annotations to file for one patch."""
     wrote = False
-    for cat, bbox in zip(annotations["category_id"], annotations["boxes"]):
-        bbox_patch = Patch(*bbox)
+    for row in annotations:
+        cat = row[-1]
+        bbox_patch = Patch(*(row[:-1]))
         relative_bbox = patch.clamp(bbox_patch)
-        cropped_ratio = 1 - relative_bbox.area / bbox_patch.area
+        cropped_ratio = 1 - relative_bbox.area / bbox_patch.area if bbox_patch.area else 0
 
         if cropped_ratio > config["crop_tolerance"]:
             if cropped_ratio < 1 and config["erase_cropped"] and image_move:
-                draw_context.rectangle(relative_bbox, fill="black")
+                draw_context.rectangle(relative_bbox.xyxy, fill="black")
             continue
 
         x, y, w, h = [n / config["patch_size"] for n in relative_bbox.xywh]
@@ -53,7 +54,7 @@ def save_patch_annotations(f, annotations: dict, patch: Patch, config: dict, dra
     return wrote
 
 
-def process_image_for_patching(image_name: str, annotations: dict, config: dict):
+def process_image_for_patching(image_name: str, annotations: list, config: dict):
     """Process a single image and generate its patches and annotations."""
     image_filename = f"{image_name}.jpeg"
     image_path = os.path.join(config["source"], "images", image_filename)
@@ -96,7 +97,7 @@ def patch_yolo_dataset(config: dict):
     # Setup directories
     setup_directories(config)
     
-    annotations = load_yolo_annotations(config["source"])
+    annotations = load_simple_yolo(config["source"])
     
     for image_name, annots in tqdm(annotations.items(), desc="Processing images for patching"):      
         # Process the image for patching

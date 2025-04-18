@@ -6,7 +6,7 @@ from PIL import Image
 from tqdm import tqdm
 from statistics import mean
 
-from . import load_yolo_annotations
+from . import load_simple_yolo, load_split_list
 from .patches import Patch
 
 def compute_iou(boxA: Patch, boxB: Patch):
@@ -30,12 +30,6 @@ def compute_iou(boxA: Patch, boxB: Patch):
     union = areaA + areaB - inter_area
 
     return inter_area / union
-
-
-def load_split_list(split_path):
-    """Load image paths from a split file."""
-    with open(split_path, "r") as f:
-        return [line.strip() for line in f if line.strip()]
 
 
 def save_crop(
@@ -73,10 +67,11 @@ def process_detection_crops(
     det_boxes = []
     class_counts = defaultdict(int)
 
-    for idx, (class_id, box) in enumerate(
-        zip(annotations["category_id"], annotations["boxes"])
+    for idx, row in enumerate(
+        annotations
     ):
-        patch = Patch(*box)
+        class_id = row[-1]
+        patch = Patch(*(row[:-1]))
         patch.expand(offset)
         x1, y1, x2, y2 = patch.xyxy    
         x1, y1 = max(0, x1), max(0, y1)
@@ -198,7 +193,7 @@ def prepare_classification_dataset(config: dict):
     bg_iou_threshold: float = config["bg_iou_threshold"]
     bg_attempts_multiplier: int = 10
 
-    annotations = load_yolo_annotations(source_dir)
+    annotations = load_simple_yolo(source_dir)
 
     for split_name, split_file in split_files.items():
         image_paths = load_split_list(split_file)
@@ -209,7 +204,7 @@ def prepare_classification_dataset(config: dict):
             image_path = os.path.normpath(os.path.join(source_dir, rel_img_path))
             image_name = os.path.splitext(os.path.basename(image_path))[0]
 
-            if not annotations[image_name]["category_id"]:
+            if not annotations[image_name]:
                 continue
 
             try:
