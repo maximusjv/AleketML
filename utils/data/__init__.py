@@ -5,7 +5,6 @@ import shutil
 import zipfile
 from PIL import Image
 import gdown
-from tqdm import tqdm
 
 def gdownload(url: str):
     """
@@ -106,31 +105,6 @@ def autosplit_detect(
     print(f"Auto-split completed: {len(train_list)} train, {len(val_list)} val")
     return train_txt, val_txt
 
-def remove_background_images(root_dir: str, removal_percentage: float):
-    """Remove a percentage of images that have no annotations."""
-    image_dir = os.path.join(root_dir, "images")
-    label_dir = os.path.join(root_dir, "labels")
-
-    background_images = [
-        os.path.join(image_dir, f)
-        for f in os.listdir(image_dir)
-        if not os.path.exists(os.path.join(label_dir, f.replace(".jpeg", ".txt")))
-    ]
-
-    to_remove = random.sample(
-        background_images, int(len(background_images) * removal_percentage)
-    )
-
-    for image_path in to_remove:
-        os.remove(image_path)
-        label_file = os.path.join(
-            label_dir, os.path.basename(image_path).replace(".jpeg", ".txt")
-        )
-        if os.path.exists(label_file):
-            os.remove(label_file)
-
-    print(f"Removed {len(to_remove)} background images.")
-
 def xyxy_to_xywh_center(bbox):
   x1, y1, x2, y2 = bbox
   w = x2 - x1
@@ -189,7 +163,9 @@ def load_yolo_annotations(root_dir: str) -> dict:
 from .converting_to_yolo import prepare_yolo_dataset
 from .detection_to_classification import prepare_classification_dataset
 from .patch_yolo import patch_yolo_dataset
+from .patches import Patch, crop_patches, make_patches, expand_patch
 
 __all__ = ["patch_yolo_dataset", "prepare_classification_dataset", "prepare_yolo_dataset",
-           "autosplit_detect", "remove_background_images", "setup_directories", "gdownload"
+           "autosplit_detect", "remove_background_images", "setup_directories", "gdownload",
+           "Patch", "crop_patches", "make_patches", "expand_patch"
            ]

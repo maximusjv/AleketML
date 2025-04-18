@@ -4,7 +4,7 @@ import os
 import random
 import shutil
 from tqdm import tqdm
-from utils.data import setup_directories, autosplit_detect
+from . import setup_directories, autosplit_detect
 from PIL import Image
  
 def prepare_yolo_dataset(config: dict):

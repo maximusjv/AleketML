@@ -5,7 +5,7 @@ import torchvision.ops as ops
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
-from utils.patches import Patch, make_patches, crop_patches
+from utils.data import Patch, make_patches, crop_patches
 
 
 # Resizer class (unchanged, as it’s efficient with PIL)

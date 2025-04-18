@@ -7,7 +7,7 @@ from ultralytics.engine.results import Results
 
 from inference.Detection import Detector
 from inference.Classification import Classificator
-from utils.patches import Patch, crop_patches, expand_patch
+from utils.data.patches import Patch, crop_patches
 
 # Utility function to load an image
 def load(image: str | Image.Image) -> Image.Image:
@@ -47,7 +47,7 @@ class Inference:
         det_results: Results = self.detector.forward(image).cpu().numpy()
         boxes = det_results.boxes.data
         
-        patches = [expand_patch(Patch(*(box)), self.offset) for box in boxes[:, :4].tolist()]
+        patches = [Patch(*(box)).expand(self.offset) for box in boxes[:, :4].tolist()]
         patched_images = crop_patches(image, patches) 
         
         cls_results = self.classificator.forward(patched_images)

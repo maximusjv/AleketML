@@ -6,7 +6,7 @@ from PIL import Image
 from tqdm import tqdm
 from statistics import mean
 
-from utils.data import load_yolo_annotations, xyxy_to_xywh_center
+from . import load_yolo_annotations, xyxy_to_xywh_center
 
 
 def box_area(box: list[int]) -> float:

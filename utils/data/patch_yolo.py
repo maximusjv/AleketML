@@ -4,9 +4,34 @@ import os
 import random
 from PIL import Image, ImageDraw
 from tqdm import tqdm
-from utils.data import autosplit_detect, load_yolo_annotations, remove_background_images, setup_directories
-from utils.patches import make_patches, crop_patches
+from . import autosplit_detect, load_yolo_annotations, setup_directories
+from .patches import make_patches, crop_patches
 
+def remove_background_images(root_dir: str, removal_percentage: float):
+    """Remove a percentage of images that have no annotations."""
+    image_dir = os.path.join(root_dir, "images")
+    label_dir = os.path.join(root_dir, "labels")
+
+    background_images = [
+        os.path.join(image_dir, f)
+        for f in os.listdir(image_dir)
+        if not os.path.exists(os.path.join(label_dir, f.replace(".jpeg", ".txt")))
+    ]
+
+    to_remove = random.sample(
+        background_images, int(len(background_images) * removal_percentage)
+    )
+
+    for image_path in to_remove:
+        os.remove(image_path)
+        label_file = os.path.join(
+            label_dir, os.path.basename(image_path).replace(".jpeg", ".txt")
+        )
+        if os.path.exists(label_file):
+            os.remove(label_file)
+
+    print(f"Removed {len(to_remove)} background images.")
+    
 def box_area(box: list[int]) -> float: 
     """Calculate area of a bounding box in XYXY format."""
     x1, y1, x2, y2 = box
