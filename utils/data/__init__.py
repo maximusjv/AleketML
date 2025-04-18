@@ -68,7 +68,7 @@ def autosplit_detect(
     grouped_patches = defaultdict(list)
 
     for filename in os.listdir(image_dir):
-        if filename.lower().endswith((".jpg", ".jpeg", ".png")):
+        if filename.lower().endswith((".jpeg")):
             # For patched images
             if "_" in filename:
                 origin_image = "_".join(filename.split("_")[:-1])  # Remove the patch number
@@ -76,7 +76,7 @@ def autosplit_detect(
             else:
                 origin_image = os.path.splitext(filename)[0]
                 
-            grouped_patches[origin_image].append("./" + os.path.join("images", filename).replace("\\", "/"))
+            grouped_patches[origin_image].append(os.path.join(".","images", filename))
 
     origin_keys = list(grouped_patches.keys())
     random.shuffle(origin_keys)
@@ -114,8 +114,7 @@ def remove_background_images(root_dir: str, removal_percentage: float):
     background_images = [
         os.path.join(image_dir, f)
         for f in os.listdir(image_dir)
-        if not os.path.exists(os.path.join(label_dir, f.replace(".jpg", ".txt")))
-        and not os.path.exists(os.path.join(label_dir, f.replace(".jpeg", ".txt")))
+        if not os.path.exists(os.path.join(label_dir, f.replace(".jpeg", ".txt")))
     ]
 
     to_remove = random.sample(
@@ -125,7 +124,7 @@ def remove_background_images(root_dir: str, removal_percentage: float):
     for image_path in to_remove:
         os.remove(image_path)
         label_file = os.path.join(
-            label_dir, os.path.basename(image_path).replace(".jpg", ".txt").replace(".jpeg", ".txt")
+            label_dir, os.path.basename(image_path).replace(".jpeg", ".txt")
         )
         if os.path.exists(label_file):
             os.remove(label_file)
@@ -150,13 +149,11 @@ def load_yolo_annotations(root_dir: str) -> dict:
     
     annotations = {}
        
-    for image_file in tqdm(image_files, desc="Processing images for patching"):
+    for image_file in image_files:
         image_name = os.path.splitext(image_file)[0]
         label_file = os.path.join(label_dir, f"{image_name}.txt")
         
-        # Only process images that have corresponding label files
-        if not os.path.exists(label_file):
-            continue
+
             
         # Load image to get dimensions
         image_path = os.path.join(image_dir, image_file)
@@ -164,6 +161,10 @@ def load_yolo_annotations(root_dir: str) -> dict:
         img_width, img_height = image.size
      
         annotations[image_name] = { "category_id": [], "boxes": []}
+        
+        # Only process images that have corresponding label files
+        if not os.path.exists(label_file):
+            continue
         
         if os.path.exists(label_file):
             with open(label_file, 'r') as f:

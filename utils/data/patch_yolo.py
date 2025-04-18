@@ -49,8 +49,8 @@ def process_image_for_patching(image_name: str, annotations: dict, config: dict)
     patches = crop_patches(image, patch_boxes) if config["image_move"] else [None] * len(patch_boxes)
     
     for i, (patch, patched_image) in enumerate(zip(patch_boxes, patches)):
-        patch_name = f"{image_name}_{i}.jpg"
-        patch_label_name = patch_name.replace(".jpg", ".txt")
+        patch_name = f"{image_name}_{i}.jpeg"
+        patch_label_name = patch_name.replace(".jpeg", ".txt")
         patch_image_path = os.path.join(config["destination"], "images", patch_name)
         patch_label_path = os.path.join(
             config["destination"], "labels", patch_label_name
@@ -81,7 +81,7 @@ def patch_yolo_dataset(config: dict):
     
     annotations = load_yolo_annotations(config["source"])
     
-    for image_name, annots in annotations.items():      
+    for image_name, annots in tqdm(annotations.items(), desc="Processing images for patching"):      
         # Process the image for patching
         process_image_for_patching(image_name, annots, config)
     

@@ -31,12 +31,13 @@ def main():
     
     # Phase 2: Create patched YOLO dataset
     print("Phase 2: Creating patched YOLO dataset...")
-    patched_dir = patch_yolo_dataset(CONFIG)
+    patch_yolo_dataset(CONFIG)
     
+    CONFIG["destination"] = CONFIG["source"] 
     # Phase 3: Create classification dataset from patched YOLO dataset
-    print("Phase 3: Creating classification dataset from patched YOLO dataset...")
-    CONFIG["source"] = patched_dir
+    print("Phase 3: Creating classification dataset from YOLO dataset...")
     prepare_classification_dataset(CONFIG)
+    
     
     print("All processing completed!")
 
