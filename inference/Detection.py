@@ -179,8 +179,8 @@ class Postprocessor:
 class Detector:
     def __init__(
         self,
-        device: int | str | list,
         model_path: str,
+        device: int | str | list = None,
         overlap: float = 0.2,
         patch_size: int = 1024,
         size_factor: float = 1.0,

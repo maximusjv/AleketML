@@ -1,12 +1,12 @@
 from PIL import Image
 import numpy as np
 import torch
-import torchvision.ops as ops
+import torchvision.ops.boxes as ops
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
-from inference.Detection import Detector
-from inference.Classification import Classificator
+from .Detection import Detector
+from .Classification import Classificator
 from utils.data.patches import Patch, crop_patches
 
 # Utility function to load an image
@@ -15,20 +15,25 @@ def load(image: str | Image.Image) -> Image.Image:
         image = Image.open(image)
     return image
 
-def build_inference_module(
-    device: str | int | list,
-    detection_model_path: str, 
-    classification_model_path: str
-    ):
-    det_model = Detector(device,
-                          detection_model_path,
-                          single_cls=True)
-    cls_model = Classificator(device, 
-                               classification_model_path)
-    return Inference(det_model,
-                     cls_model,
-                        )
-
+def quantify(res: Results):
+    res = res.cpu()
+    boxes = res.boxes.xyxy
+    classes = res.boxes.cls
+    
+    areas = torch.empty(len(res.names), dtype=torch.float64)
+    counts = torch.empty(len(res.names), dtype=torch.uint64)
+    
+    for cls in range(len(res.names)):
+        keep = classes == cls
+        areas[cls] = torch.sum(ops.box_area(boxes) * keep, dtype=torch.float64)
+        counts[cls] = keep.sum()
+        
+        
+    return {
+        "areas": areas,
+        "counts": counts,
+        "names": res.names
+    }
 
 class Inference:
     def __init__(self, 
@@ -58,12 +63,17 @@ class Inference:
         confidences = np.asarray([cls_result.probs.top1conf for cls_result in cls_results])
        # expanded_boxes = np.concatenate((boxes, confidences[:, np.newaxis]), axis=1)
         
-        return Results(
+        results = Results(
             np.asarray(image)[..., ::-1],
             "",
             self.classificator.model.names,
             boxes=boxes,
         )
+        
+        return {
+            "object_detection": results,
+            "quantification": quantify(results),
+        }
         
         
         
