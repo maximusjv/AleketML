@@ -54,7 +54,7 @@ class CocoEvaluator:
         
 
 
-    def eval(self, predictions: dict[str, Results]):
+    def eval(self, predictions: dict[str, Results], useCats=True):
         """Evaluates the accumulated predictions.
         Returns:
             A dictionary of COCO evaluation statistics.
@@ -89,6 +89,7 @@ class CocoEvaluator:
         with redirect_stdout(io.StringIO()):  # Suppress COCO output during evaluation
             coco_dt = self.coco_gt.loadRes(self.coco_dt)
             coco = COCOeval(self.coco_gt, coco_dt, iouType="bbox")
+            coco.params.useCats = useCats
             coco.evaluate()
             coco.accumulate()
             coco.summarize()
