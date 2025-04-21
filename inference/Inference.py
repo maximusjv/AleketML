@@ -15,15 +15,12 @@ def load(image: str | Image.Image) -> Image.Image:
         image = Image.open(image)
     return image
 
-def quantify(res: Results):
-    res = res.cpu()
-    boxes = res.boxes.xyxy
-    classes = res.boxes.cls
+def quantify(boxes, classes, class_num):
     
-    areas = torch.empty(len(res.names), dtype=torch.float64)
-    counts = torch.empty(len(res.names), dtype=torch.uint64)
+    areas = torch.empty(class_num, dtype=torch.float64)
+    counts = torch.empty(class_num, dtype=torch.uint64)
     
-    for cls in range(len(res.names)):
+    for cls in range(class_num):
         keep = classes == cls
         areas[cls] = torch.sum(ops.box_area(boxes) * keep, dtype=torch.float64)
         counts[cls] = keep.sum()
@@ -32,7 +29,6 @@ def quantify(res: Results):
     return {
         "areas": areas,
         "counts": counts,
-        "names": res.names
     }
 
 class Inference:
@@ -47,7 +43,7 @@ class Inference:
         self.offset = offset
         pass
     
-    def forward(self, x: str | Image.Image) -> Results:
+    def forward(self, x: str | Image.Image) -> dict:
         image = load(x)
         det_results: Results = self.detector.forward(image).cpu().numpy()
         boxes = det_results.boxes.data
@@ -70,9 +66,15 @@ class Inference:
             boxes=boxes,
         )
         
+        results = results.cpu().numpy()
         return {
-            "object_detection": results,
-            "quantification": quantify(results),
+            "object_detection": results.boxes,
+            "quantification": quantify(
+                boxes=results.boxes.xyxy,
+                classes=results.boxes.cls,
+                class_num = len(results.names)
+                ),
+            "class_names": results.names,
         }
         
         
