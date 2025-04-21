@@ -65,11 +65,11 @@ class CocoEvaluator:
             if not results:  # Check if prediction is empty
                 continue
 
-            boxes = results.boxes.xyxy.cpu().numpy()
+            boxes = results.boxes.xyxy
             boxes[:, 2:] -= boxes[:, :2]
             boxes = boxes.tolist()
-            scores = results.boxes.conf.cpu().numpy().tolist()
-            labels = results.boxes.cls.cpu().numpy().tolist()
+            scores = results.boxes.conf.tolist()
+            labels = results.boxes.cls.tolist()
 
             coco_dt.extend(
                 [
