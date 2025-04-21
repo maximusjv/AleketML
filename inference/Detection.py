@@ -228,4 +228,4 @@ class Detector:
                 else self.yolo.model.names
             ) if not self.single_cls else {0: "object"},
             boxes=preds_boxes,
-        )
+        ).cpu().numpy()

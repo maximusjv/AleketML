@@ -44,7 +44,7 @@ class Inference:
 
     def forward(self, x: str | Image.Image) -> dict:
         image = load(x)
-        det_results: Results = self.detector.forward(image).cpu().numpy()
+        det_results: Results = self.detector.forward(image)
         boxes = det_results.boxes.data
 
         patches = [Patch(*(box)).expand(self.offset) for box in boxes[:, :4].tolist()]
@@ -69,7 +69,7 @@ class Inference:
 
     
         return {
-            "object_detection": boxes,
+            "object_detection": results,
             "quantification": quantify(
                 boxes=results.boxes.xyxy,
                 classes=results.boxes.cls,
