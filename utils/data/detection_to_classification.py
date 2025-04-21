@@ -6,7 +6,7 @@ from PIL import Image
 from tqdm import tqdm
 from statistics import mean
 
-from . import load_simple_yolo, load_split_list
+from . import load_split_list, load_yolo
 from .patches import Patch
 
 def compute_iou(boxA: Patch, boxB: Patch):
@@ -193,27 +193,24 @@ def prepare_classification_dataset(config: dict):
     bg_iou_threshold: float = config["bg_iou_threshold"]
     bg_attempts_multiplier: int = 10
 
-    annotations = load_simple_yolo(source_dir)
-
     for split_name, split_file in split_files.items():
         image_paths = load_split_list(split_file)
+        annotations = load_yolo(image_paths)
+        
         print(f"Processing {split_name} split with {len(image_paths)} images.")
 
-        for rel_img_path in tqdm(image_paths, desc=f"Processing {split_name}"):
-
-            image_path = os.path.normpath(os.path.join(source_dir, rel_img_path))
-            image_name = os.path.splitext(os.path.basename(image_path))[0]
-
+        for img_path in tqdm(image_paths, desc=f"Processing {split_name}"):
+            
+            image_name = os.path.splitext(os.path.basename(img_path))[0]
             if not annotations[image_name]:
                 continue
-
             try:
-                image = Image.open(image_path)
+                image = Image.open(img_path)
             except Exception as e:
-                print(f"Error opening {image_path}: {e}")
+                print(f"Error opening {img_path}: {e}")
                 continue
 
-            base_name = os.path.splitext(os.path.basename(image_path))[0]
+            base_name = os.path.splitext(os.path.basename(img_path))[0]
             split_dest_dir = os.path.join(output_dir, split_name)
             os.makedirs(split_dest_dir, exist_ok=True)
 

@@ -4,7 +4,7 @@ import os
 import random
 from PIL import Image, ImageDraw
 from tqdm import tqdm
-from . import autosplit_detect, load_simple_yolo, setup_directories
+from . import autosplit_detect, setup_directories, load_yolo
 from .patches import Patch, make_patches, crop_patches
 
 def remove_background_images(root_dir: str, removal_percentage: float):
@@ -97,7 +97,7 @@ def patch_yolo_dataset(config: dict):
     # Setup directories
     setup_directories(config)
     
-    annotations = load_simple_yolo(config["source"])
+    annotations = load_yolo(config["source"])
     
     for image_name, annots in tqdm(annotations.items(), desc="Processing images for patching"):      
         # Process the image for patching

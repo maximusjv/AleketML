@@ -108,23 +108,41 @@ def autosplit_detect(
 def load_split_list(split_path):
     """Load image paths from a split file."""
     with open(split_path, "r") as f:
-        return [line.strip() for line in f if line.strip()]
-
-def load_simple_yolo(root_dir: str) -> dict:
-    image_dir = os.path.join(root_dir, "images")
-    label_dir = os.path.join(root_dir, "labels")
-    image_files = [f for f in os.listdir(image_dir) 
-                  if f.lower().endswith(('.jpeg'))]
+        return [
+            os.path.normpath(
+                os.path.join(os.path.dirname(split_path), line.strip())
+            )
+            for line in f
+            if line.strip()
+        ]
     
+def load_yolo(source: str | list) -> dict:
+    
+    if isinstance(source, str):
+        if os.path.isdir(source):
+            image_dir = os.path.join(source, "images")
+            label_dir = os.path.join(source, "labels")
+        
+            #BUG IMAGE files are not absolute
+            image_files = [os.path.join(image_dir, f) for f in os.listdir(image_dir) 
+                            if f.lower().endswith(('.jpeg'))]
+        
+        else:
+            image_files = load_split_list(source)
+    else:
+        image_files = source
+        
     annotations = {}
     
     for image_file in image_files:
-        image_name = os.path.splitext(image_file)[0]
-        label_file = os.path.join(label_dir, f"{image_name}.txt")
+        image_name = os.path.splitext(os.path.basename(image_file))[0]
         
+        label_dir = os.path.normpath(os.path.join(os.path.dirname(image_file), '..', 'labels'))
+        
+        label_file = os.path.join(label_dir, f"{image_name}.txt")
+        #BUG image dir is not defined
         # Load image to get dimensions
-        image_path = os.path.join(image_dir, image_file)
-        image = Image.open(image_path)
+        image = Image.open(image_file)
         img_width, img_height = image.size
      
         annotations[image_name] = []
@@ -148,7 +166,7 @@ def load_simple_yolo(root_dir: str) -> dict:
                             
     return annotations
 
-def load_yolo_as_coco(root_dir: str, classes: dict = {}):
+def as_coco(simple_annotations: dict, classes: dict = {}):
     """Converts a custom dataset to COCO API format.
     Args:
         dataset: The custom dataset to convert.
@@ -156,11 +174,7 @@ def load_yolo_as_coco(root_dir: str, classes: dict = {}):
     Returns:
         A COCO dataset object.
     """
-
-    image_dir = os.path.join(root_dir, "images")
-    label_dir = os.path.join(root_dir, "labels")
-    image_files = [f for f in os.listdir(image_dir) 
-                  if f.lower().endswith(('.jpeg'))]
+    
     
 
     coco_api_dataset = {"images": [], "categories": [], "annotations": []}
@@ -169,100 +183,36 @@ def load_yolo_as_coco(root_dir: str, classes: dict = {}):
     img_id = 1
     names_to_ids = {}
     
-    for image_file in image_files:
-        image_name = os.path.splitext(image_file)[0]
-        label_file = os.path.join(label_dir, f"{image_name}.txt")
+    for image_name, annots in simple_annotations.items():
         
-        # Load image to get dimensions
-        image_path = os.path.join(image_dir, image_file)
-        image = Image.open(image_path)
-        img_width, img_height = image.size
-
+        
         names_to_ids[image_name] = img_id
         img_id += 1
         
-        if os.path.exists(label_file):
-            with open(label_file, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        parts = line.strip().split()
-                        if len(parts) == 5:
-                            cat = int(parts[0])
-                            x_center, y_center, width, height = map(float, parts[1:])
-                            
-                            # Convert YOLO format back to absolute coordinates (x1, y1, x2, y2)
-                            x1 = (x_center - width/2) * img_width
-                            y1 = (y_center - height/2) * img_height
-                                                    
-                            ann = {
-                                "image_id": img_id,
-                                "bbox": [x1, y1, width * img_width, height * img_height],
-                                "category_id": cat,
-                                "area": height * img_height * width * img_width,
-                                "iscrowd": 0,
-                                "id": ann_id,
-                            }
-                            
-                            categories.add(cat)
-                            coco_api_dataset["annotations"].append(ann)
-                            ann_id += 1
-
-                            
-        img_entry = {"id": img_id, "height": image.shape[-2], "width": image.shape[-1]}
-        coco_api_dataset["images"].append(img_entry)
+        for row in annots:
+            x1,y1,x2,y2,cat=row
+            w = x2-x1
+            h = y2-y1
+                                    
+            ann = {
+                "image_id": img_id,
+                "bbox": [x1, y1, w, h],
+                "category_id": cat,
+                "area": w * h,
+                "iscrowd": 0,
+                "id": ann_id,
+            }
+            
+            categories.add(cat)
+            coco_api_dataset["annotations"].append(ann)
+            ann_id += 1
 
          
     coco_api_dataset["categories"] = [
         {"id": i, "label": classes.get(i, i)} for i in sorted(categories)
-    ]  # TODO add names
+    ] 
  
     return coco_api_dataset 
-    
-def load_yolo_annotations(root_dir: str) -> dict:
-    
-    image_dir = os.path.join(root_dir, "images")
-    label_dir = os.path.join(root_dir, "labels")
-    
-    image_files = [f for f in os.listdir(image_dir) 
-                  if f.lower().endswith(('.jpeg'))]
-    
-    annotations = {}
-       
-    for image_file in image_files:
-        image_name = os.path.splitext(image_file)[0]
-        label_file = os.path.join(label_dir, f"{image_name}.txt")
-        
-        # Load image to get dimensions
-        image_path = os.path.join(image_dir, image_file)
-        image = Image.open(image_path)
-        img_width, img_height = image.size
-     
-        annotations[image_name] = { "category_id": [], "boxes": []}
-        
-        # Only process images that have corresponding label files
-        if not os.path.exists(label_file):
-            continue
-        
-        if os.path.exists(label_file):
-            with open(label_file, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        parts = line.strip().split()
-                        if len(parts) == 5:
-                            cat = int(parts[0])
-                            x_center, y_center, width, height = map(float, parts[1:])
-                            
-                            # Convert YOLO format back to absolute coordinates (x1, y1, x2, y2)
-                            x1 = (x_center - width/2) * img_width
-                            y1 = (y_center - height/2) * img_height
-                            x2 = (x_center + width/2) * img_width
-                            y2 = (y_center + height/2) * img_height
-                            
-                            annotations[image_name]["category_id"].append(cat)
-                            annotations[image_name]["boxes"].append([x1, y1, x2, y2])
-                            
-    return annotations
-
     
 
 from .converting_to_yolo import prepare_yolo_dataset
