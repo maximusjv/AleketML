@@ -6,7 +6,7 @@ from PIL import Image
 from tqdm import tqdm
 from statistics import mean
 
-from . import load_split_list, load_yolo
+from .load import load_split_list, load_yolo
 from .patches import Patch
 
 def compute_iou(boxA: Patch, boxB: Patch):
