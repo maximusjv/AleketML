@@ -2,13 +2,12 @@ from PIL import Image
 import numpy as np
 import torch
 import torchvision.ops.boxes as ops
-from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
 from .Detection import Detector
 from .Classification import Classificator
 from utils.data.patches import Patch, crop_patches
-                                
+
 
 # Utility function to load an image
 def load(image: str | Image.Image) -> Image.Image:
@@ -19,12 +18,12 @@ def load(image: str | Image.Image) -> Image.Image:
 
 def quantify(boxes, classes, class_num):
 
-    areas = torch.empty(class_num, dtype=torch.float64)
-    counts = torch.empty(class_num, dtype=torch.uint64)
+    areas = np.empty(class_num, dtype=np.float64)
+    counts = np.empty(class_num, dtype=np.uint64)
 
     for cls in range(class_num):
         keep = classes == cls
-        areas[cls] = torch.sum(ops.box_area(boxes) * keep, dtype=torch.float64)
+        areas[cls] = np.sum(ops.box_area(boxes) * keep, dtype=torch.float64)
         counts[cls] = keep.sum()
 
     return {
@@ -68,9 +67,9 @@ class Inference:
             boxes=boxes,
         )
 
-        results = results.cpu().numpy()
+    
         return {
-            "object_detection": results.boxes,
+            "object_detection": boxes,
             "quantification": quantify(
                 boxes=results.boxes.xyxy,
                 classes=results.boxes.cls,
