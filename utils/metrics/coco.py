@@ -49,19 +49,18 @@ class CocoEvaluator:
         """
   
         gt_dataset = load_as_coco(gt_dataset)
-
         self.coco_gt = copy.deepcopy(gt_dataset)
         
 
 
-    def eval(self, predictions: dict[str, Results], useCats=True):
+    def eval(self, predictions: dict[str, Results], names_to_ids: dict[str, int], useCats=True):
         """Evaluates the accumulated predictions.
         Returns:
             A dictionary of COCO evaluation statistics.
         """
         
         coco_dt = []
-        for image_id, results in predictions.items():
+        for image_name, results in predictions.items():
             if not results:  # Check if prediction is empty
                 continue
 
@@ -74,7 +73,7 @@ class CocoEvaluator:
             coco_dt.extend(
                 [
                     {
-                        "image_id": image_id,
+                        "image_id": names_to_ids[image_name],
                         "category_id": labels[k],
                         "bbox": box,
                         "score": scores[k],
