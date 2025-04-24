@@ -1,4 +1,4 @@
-path: ../datasets/orobanche_cummana
+path: ../datasets/orobanche_cummana/patched
 
 train: ./autosplit_train.txt
 val: ./autosplit_val.txt 

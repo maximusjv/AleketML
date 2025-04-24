@@ -7,7 +7,7 @@ CONFIG = {
     "source": os.path.normpath("C:/Users/maksi/Documents/dataset_full_images"),
     "destination": os.path.normpath("C:/Users/maksi/Documents/datasets/orobanche_cummana"),
     "seed": 42,                             # Random seed for reproducibility
-    "image_move": False,                     # Whether to move images or just create annotations
+    "image_move": True,                     # Whether to move images or just create annotations
     "patch_size": 1024,                      # Size of patches
     "patch_overlap": 0.5,                   # Overlap between patches
     "crop_tolerance": 0.5,                  # Maximum allowed cropping ratio
@@ -22,8 +22,8 @@ def main():
     # Example configuration
 
     # Phase 1: Create YOLO dataset without patching
-    print("Phase 1: Creating YOLO dataset from source annotations...")
-    prepare_yolo_dataset(CONFIG)
+   # print("Phase 1: Creating YOLO dataset from source annotations...")
+   # prepare_yolo_dataset(CONFIG)
     
     CONFIG["source"] = CONFIG["destination"]
     CONFIG["destination"] = os.path.join(CONFIG["destination"], "patched")

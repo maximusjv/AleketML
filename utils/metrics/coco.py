@@ -85,11 +85,11 @@ class CocoEvaluator:
         if not coco_dt:
             print("NO PREDICTIONS")
             return stats_dict(np.zeros(12))
-        with redirect_stdout(io.StringIO()):  # Suppress COCO output during evaluation
-            coco_dt = self.coco_gt.loadRes(self.coco_dt)
-            coco = COCOeval(self.coco_gt, coco_dt, iouType="bbox")
-            coco.params.useCats = useCats
-            coco.evaluate()
-            coco.accumulate()
-            coco.summarize()
+        
+        coco_dt = self.coco_gt.loadRes(self.coco_dt)
+        coco = COCOeval(self.coco_gt, coco_dt, iouType="bbox")
+        coco.params.useCats = useCats
+        coco.evaluate()
+        coco.accumulate()
+        coco.summarize()
         return stats_dict(coco.stats)

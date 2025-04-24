@@ -2,6 +2,16 @@ from typing import Any
 import torch
 from torchvision.ops import boxes as ops
 
+def get_classify_ground_truth(predict_boxes: torch.Tensor,
+                              gt_boxes: torch.Tensor,
+                              gt_classes: torch.Tensor,
+                              background_iou_thresh: float = 0.5):
+    best_match = match_dts_to_best_gt(predict_boxes, gt_boxes,background_iou_thresh)
+    gt_classes = torch.cat((gt_classes, torch.tensor([0], device=gt_classes.device)))
+    filtered_best_match = torch.where(best_match > -1, best_match, torch.full_like(best_match, 0))
+    return torch.where(best_match > -1, gt_classes[filtered_best_match], torch.zeros_like(filtered_best_match, dtype=gt_classes.dtype))
+    
+    
 # Helper function to ensure tensor and correct device
 def ensure_tensor(data: Any, ref_tensor: torch.Tensor = None) -> torch.Tensor:
     """Converts data to a tensor if it isn't already, placing it on the ref_tensor's device."""

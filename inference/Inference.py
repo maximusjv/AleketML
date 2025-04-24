@@ -42,32 +42,56 @@ class Inference:
         self.offset = offset
         pass
 
-    def forward(self, x: str | Image.Image) -> dict:
-        image = load(x)
-        det_results: Results = self.detector.forward(image)
-        boxes = det_results.boxes.data
+    def detect(self, x: Image.Image) -> Results:
+        det_results: Results = self.detector.forward(x)
+        det_results.orig_img = None # remove image from results for memory efficiency
+        return det_results
 
+    def patch(self, image, boxes):
         patches = [Patch(*(box)).expand(self.offset) for box in boxes[:, :4].tolist()]
         patched_images = crop_patches(image, patches)
 
+        return patched_images, patches
+
+    def classify(self, patched_images):
         cls_results = self.classificator.forward(patched_images)
         cls_results = [x.cpu() for x in cls_results]
 
-        boxes[:, 5] = np.asarray([cls_result.probs.top1 for cls_result in cls_results])
-
+        classes = np.asarray([cls_result.probs.top1 for cls_result in cls_results])
         confidences = np.asarray(
             [cls_result.probs.top1conf for cls_result in cls_results]
         )
-        # expanded_boxes = np.concatenate((boxes, confidences[:, np.newaxis]), axis=1)
 
+        return classes, confidences
+
+    def merge_detect_and_classification(self, image, boxes, classes, confidences):
+        boxes[:, 5] = classes
+        expanded_boxes = np.concatenate((boxes, confidences[:, np.newaxis]), axis=1)
+        
         results = Results(
             np.asarray(image)[..., ::-1],
             "",
             self.classificator.model.names,
             boxes=boxes,
         )
+        results.orig_img = None # remove image from results for memory efficiency
 
-    
+        return results
+
+    def forward(self, x: str | Image.Image) -> dict:
+        image = load(x)
+
+        det_results = self.detect(image)
+        detections = det_results.boxes
+        
+        detections_patched, _ = self.patch(image, detections)
+        detections_classes, classifications_confidences = self.classify(
+            detections_patched
+        )
+
+        results = self.merge_detect_and_classification(
+            image, detections, detections_classes, classifications_confidences
+        )
         return {
             "object_detection": results,
             "quantification": quantify(
