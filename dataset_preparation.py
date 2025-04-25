@@ -21,9 +21,9 @@ CONFIG = {
 def main():
     # Example configuration
 
-    # Phase 1: Create YOLO dataset without patching
-   # print("Phase 1: Creating YOLO dataset from source annotations...")
-   # prepare_yolo_dataset(CONFIG)
+    #Phase 1: Create YOLO dataset without patching
+    #print("Phase 1: Creating YOLO dataset from source annotations...")
+    #prepare_yolo_dataset(CONFIG)
     
     CONFIG["source"] = CONFIG["destination"]
     CONFIG["destination"] = os.path.join(CONFIG["destination"], "patched")

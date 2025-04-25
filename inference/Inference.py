@@ -2,7 +2,9 @@ from PIL import Image
 import numpy as np
 import torch
 import torchvision.ops.boxes as ops
-from ultralytics.engine.results import Results
+from ultralytics.engine.results import Results, Boxes
+
+from utils.metrics.utils import box_area
 
 from .Detection import Detector
 from .Classification import Classificator
@@ -23,7 +25,7 @@ def quantify(boxes, classes, class_num):
 
     for cls in range(class_num):
         keep = classes == cls
-        areas[cls] = np.sum(ops.box_area(boxes) * keep, dtype=torch.float64)
+        areas[cls] = np.sum(box_area(boxes) * keep, dtype=np.float64)
         counts[cls] = keep.sum()
 
     return {
@@ -47,8 +49,8 @@ class Inference:
         det_results.orig_img = None # remove image from results for memory efficiency
         return det_results
 
-    def patch(self, image, boxes):
-        patches = [Patch(*(box)).expand(self.offset) for box in boxes[:, :4].tolist()]
+    def patch(self, image: Image.Image, boxes: Boxes):
+        patches = [Patch(*(box)).expand(self.offset) for box in boxes.xyxy.tolist()]
         patched_images = crop_patches(image, patches)
 
         return patched_images, patches

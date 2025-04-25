@@ -71,6 +71,8 @@ class PatchMerger:
             pred_boxes[:, [1, 3]] += patch.ymin
             if len(pred_boxes) != 0:
                 boxes.extend(pred_boxes)
+        if (len(boxes) == 0):
+            return torch.empty((0, 6))
         pred_boxes = torch.stack(boxes)
         pred_boxes[:, [0, 1, 2, 3]] /= self.size_factor
         return pred_boxes
@@ -172,6 +174,8 @@ class Postprocessor:
         boxes = self.merger.forward(x)
         if self.single_cls:
             boxes[:, 5] = 0
+        if len(boxes) == 0:
+            return torch.empty((0, 6))
         return self.wbf.forward(boxes)
 
 
@@ -215,6 +219,7 @@ class Detector:
             max_det=self.max_det,
             imgsz=self.imgsz,
             device=self.device,
+            verbose=False,
         )
         preds_boxes = [res.boxes.data.clone() for res in preds_result]
         preds_boxes = self.postproccessor.forward((patches, preds_boxes))
