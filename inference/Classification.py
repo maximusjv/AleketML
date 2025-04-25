@@ -1,7 +1,6 @@
 from PIL import Image
 import numpy as np
 import torch
-import torchvision.ops as ops
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
