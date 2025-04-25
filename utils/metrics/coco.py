@@ -86,7 +86,7 @@ class CocoEvaluator:
             print("NO PREDICTIONS")
             return stats_dict(np.zeros(12))
         
-        coco_dt = self.coco_gt.loadRes(self.coco_dt)
+        coco_dt = self.coco_gt.loadRes(coco_dt)
         coco = COCOeval(self.coco_gt, coco_dt, iouType="bbox")
         coco.params.useCats = useCats
         coco.evaluate()

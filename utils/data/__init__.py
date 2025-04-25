@@ -75,7 +75,7 @@ def autosplit_detect(
             else:
                 origin_image = os.path.splitext(filename)[0]
                 
-            grouped_patches[origin_image].append(os.path.join(".","images", filename))
+            grouped_patches[origin_image].append(os.path.join(".","images", filename).replace("\\", "/"))
 
     origin_keys = list(grouped_patches.keys())
     random.shuffle(origin_keys)
@@ -123,15 +123,15 @@ def as_coco(simple_annotations: dict, classes: dict = {}):
     coco_api_dataset = {"images": [], "categories": [], "annotations": []}
     categories = set()
     ann_id = 1
-    img_id = 1
+    img_id = 0
     names_to_ids = {}
     
     for image_name, annots in simple_annotations.items():
         
-        
-        names_to_ids[image_name] = img_id
         img_id += 1
-        
+        names_to_ids[image_name] = img_id
+        img_entry = {"id": img_id}
+        coco_api_dataset["images"].append(img_entry)
         for row in annots:
             x1,y1,x2,y2,cat=row
             w = x2-x1
