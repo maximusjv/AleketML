@@ -4,7 +4,7 @@ import torch
 import torchvision.ops.boxes as ops
 from ultralytics.engine.results import Results, Boxes
 
-from utils.metrics.utils import box_area
+from metrics.utils import box_area
 
 from .Detection import Detector
 from .Classification import Classificator
