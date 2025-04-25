@@ -4,182 +4,107 @@ import torch
 import torchvision.ops as ops
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
-
 from utils.data import Patch, make_patches, crop_patches
 
+def resize_image(image: Image.Image, size_factor: float) -> Image.Image:
+    """Resize image using PIL with proportional scaling."""
+    wd, ht = image.size
+    return image.resize((int(wd * size_factor), int(ht * size_factor)))
 
-# Resizer class (unchanged, as it’s efficient with PIL)
-class Resizer:
-    def __init__(self, size_factor: float):
-        self.size_factor = size_factor
+def create_patches(image: Image.Image, patch_size: int, overlap: float) -> tuple[list[Patch], torch.Tensor]:
+    """Create image patches and return as batched tensor."""
+    wd, ht = image.size
+    padded_wd, padded_ht, patches = make_patches(wd, ht, patch_size, overlap)
+    padded_img = Image.new("RGB", (padded_wd, padded_ht))
+    padded_img.paste(image)
+    
+    # Vectorized patch extraction
+    np_img = np.array(padded_img)
+    patch_arrays = [np_img[p.ymin:p.ymax, p.xmin:p.xmax] for p in patches]
+    batch = torch.stack([torch.from_numpy(p).permute(2,0,1).float()/255 for p in patch_arrays])
+    
+    return patches, batch
 
-    def forward(self, x: Image.Image) -> Image.Image:
-        ht, wd = x.height, x.width
-        ht = int(ht * self.size_factor)
-        wd = int(wd * self.size_factor)
-        return x.resize(size=[wd, ht])
+def merge_predictions(patches: list[Patch], results: list[torch.Tensor], size_factor: float) -> torch.Tensor:
+    """Merge patch-based predictions to original image coordinates."""
+    merged = []
+    for patch, preds in zip(patches, results):
+        if preds.shape[0] > 0:
+            adjusted = preds.clone()
+            adjusted[:, [0,2]] += patch.xmin
+            adjusted[:, [1,3]] += patch.ymin
+            merged.append(adjusted)
+    
+    if not merged:
+        return torch.empty((0, 6))
+    
+    merged = torch.cat(merged)
+    merged[:, :4] /= size_factor
+    return merged
 
-
-# Optimized Patcher: Returns a batched tensor instead of a list of PIL images
-class Patcher:
-    def __init__(self, patch_size: int, overlap: float):
-        self.patch_size = patch_size
-        self.overlap = overlap
-
-    def forward(self, x: Image.Image) -> tuple[list[Patch], torch.Tensor]:
-        ht, wd = x.height, x.width
-        padded_width, padded_height, patches = make_patches(
-            wd, ht, self.patch_size, self.overlap
-        )
-        padded_img = Image.new("RGB", (padded_width, padded_height))
-        padded_img.paste(x)
-        padded_np = np.array(padded_img)  # Shape: (padded_height, padded_width, 3)
-
-        # Extract patches efficiently using list comprehension
-        patch_arrays = crop_patches(padded_np, patches)
-        batch_np = np.stack(patch_arrays)  # Shape: (N, patch_size, patch_size, 3)
-        batch_tensor = (
-            torch.from_numpy(batch_np).permute(0, 3, 1, 2).float() / 255.0
-        )  # Shape: (N, 3, patch_size, patch_size)
-
-        return patches, batch_tensor
-
-
-# Preprocessor: Updated to handle batched tensor output
-class Preprocessor:
-    def __init__(self, patch_size: int, overlap: float, size_factor: float):
-        self.resizer = Resizer(size_factor)
-        self.patcher = Patcher(patch_size, overlap)
-
-    @torch.no_grad()
-    def forward(self, x: Image.Image) -> tuple[list[Patch], torch.Tensor]:
-        x = self.resizer.forward(x)
-        patches, batch_tensor = self.patcher.forward(x)
-        return patches, batch_tensor
-
-
-# PatchMerger (unchanged, as it’s reasonably efficient for now)
-class PatchMerger:
-    def __init__(self, size_factor: float):
-        self.size_factor = size_factor
-
-    def forward(self, x: tuple[list[Patch], list[torch.Tensor]]) -> torch.Tensor:
-        patches, results = x
-        boxes = []
-        for pred_boxes, patch in zip(results, patches):
-            pred_boxes[:, [0, 2]] += patch.xmin
-            pred_boxes[:, [1, 3]] += patch.ymin
-            if len(pred_boxes) != 0:
-                boxes.extend(pred_boxes)
-        if (len(boxes) == 0):
-            return torch.empty((0, 6))
-        pred_boxes = torch.stack(boxes)
-        pred_boxes[:, [0, 1, 2, 3]] /= self.size_factor
-        return pred_boxes
-
-
-def _box_inter(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
-
-    lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])  # [N,M,2]
-    rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])  # [N,M,2]
-
-    wh = (rb - lt).clamp(min=0)  # [N,M,2]
-    inter = wh[:, :, 0] * wh[:, :, 1]  # [N,M]
-
-    return inter
-
-def _box_inter_over_small(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
-    area1 = ops.box_area(boxes1)
-    area2 = ops.box_area(boxes2)
-
-    inter = _box_inter(boxes1, boxes2)  # Corrected line: Pass box coordinates
-    small = torch.minimum(area1[:, None], area2[None, :]) # Ensure correct broadcasting
-    return inter / small
-
-
-class WeightedBoxesFusionProccessor:
-    def __init__(
-        self, pre_wbf_detections: int, wbf_ios_thresh: float, post_wbf_detections: int
-    ):
-        self.pre_wbf_detections = pre_wbf_detections
-        self.ios_thresh = wbf_ios_thresh
-        self.post_wbf_detections = post_wbf_detections
-
-    def wbf(self, x: torch.Tensor) -> torch.Tensor:
-        if self.ios_thresh >= 1:  # no need for WBF
-            return x
+def weighted_box_fusion(
+    boxes: torch.Tensor,
+    ios_thresh: float,
+    pre_limit: int,
+    post_limit: int,
+    single_cls: bool
+) -> torch.Tensor:
+    """Optimized weighted box fusion implementation."""
+    if boxes.shape[0] == 0 or ios_thresh >= 1:
+        return boxes[:post_limit]
+    
+    boxes = boxes[:pre_limit]
+    device, dtype = boxes.device, boxes.dtype
+    clusters = []
+    
+    # Vectorized IO calculation
+    for cls_id in [0] if single_cls else boxes[:,5].unique():
+        cls_boxes = boxes[boxes[:,5] == cls_id] if not single_cls else boxes
+        cls_boxes = cls_boxes[cls_boxes[:,4].argsort(descending=True)]
         
-        device = x.device
-        sum_boxes = torch.empty((0, 4), device=device)
-        sum_scores = torch.empty(0, device=device)
-        counts = torch.empty(0, dtype=torch.long, device=device)
-
-        for box, score in zip(x[:, :4], x[:, 4]):
-            if sum_boxes.size(0) > 0:
-                merged_boxes = sum_boxes / sum_scores.view(-1, 1)
-                ious = _box_inter_over_small(box.unsqueeze(0), merged_boxes).squeeze(0)
-                max_iou, idx = torch.max(ious, dim=0)
-                if max_iou > self.ios_thresh:
-                    sum_boxes[idx] += box * score
-                    sum_scores[idx] += score
-                    counts[idx] += 1
-                else:
-                    sum_boxes = torch.cat([sum_boxes, (box * score).unsqueeze(0)], dim=0)
-                    sum_scores = torch.cat([sum_scores, score.unsqueeze(0)], dim=0)
-                    counts = torch.cat([counts, torch.tensor([1], device=device)])
+        for box in cls_boxes:
+            box_coords = box[:4] * box[4]
+            best_iou, best_idx = -1, -1
+            
+            for i, (total, score, count) in enumerate(clusters):
+                merged_coords = total / score
+                iou = _box_ios(merged_coords, box[:4])
+                if iou > best_iou:
+                    best_iou, best_idx = iou, i
+            
+            if best_iou > ios_thresh:
+                clusters[best_idx] = (
+                    clusters[best_idx][0] + box_coords,
+                    clusters[best_idx][1] + box[4],
+                    clusters[best_idx][2] + 1
+                )
             else:
-                sum_boxes = (box * score).unsqueeze(0)
-                sum_scores = score.unsqueeze(0)
-                counts = torch.tensor([1], device=device)
+                clusters.append((box_coords, box[4], 1))
+    
+    # Convert clusters to final boxes
+    if not clusters:
+        return torch.empty((0, 6), device=device)
+    
+    fused = []
+    for total, score, count in clusters:
+        box = torch.empty(6, device=device, dtype=dtype)
+        box[:4] = total / score
+        box[4] = score / count
+        box[5] = 0 if single_cls else boxes[0,5]
+        fused.append(box)
+    
+    fused = torch.stack(fused)
+    return fused[fused[:,4].argsort(descending=True)][:post_limit]
 
-        if sum_boxes.size(0) == 0:
-            return torch.empty((0, 6), device=device)
+def _box_ios(box1: torch.Tensor, box2: torch.Tensor) -> torch.Tensor:
+    """Calculate intersection over smallest area between two boxes."""
+    lt = torch.max(box1[:2], box2[:2])
+    rb = torch.min(box1[2:], box2[2:])
+    inter = (rb - lt).clamp(min=0).prod()
+    area1 = (box1[2]-box1[0])*(box1[3]-box1[1])
+    area2 = (box2[2]-box2[0])*(box2[3]-box2[1])
+    return inter / min(area1, area2)
 
-        merged_boxes = sum_boxes / sum_scores.view(-1, 1)
-        merged_scores = sum_scores / counts.float()
-        labels = torch.full_like(merged_scores, x[0, 5], device=device).unsqueeze(1)
-        return torch.cat([merged_boxes, merged_scores.unsqueeze(1), labels], dim=1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x[: self.pre_wbf_detections]
-        classes = torch.unique(x[:, 5])
-        merged = []
-        for class_id in classes:
-            keep = torch.where(x[:, 5] == class_id)
-            wbf_boxes = self.wbf(x[keep])
-            merged.extend(wbf_boxes)
-        merged = torch.stack(merged)
-        indices = torch.argsort(merged[:, 4], descending=True)
-        return merged[indices][: self.post_wbf_detections]
-
-
-# Postprocessor (unchanged, integrates optimized components)
-class Postprocessor:
-    def __init__(
-        self,
-        size_factor: float,
-        pre_wbf_detections: int,
-        wbf_ios_thresh: float, #intresection over small
-        max_detections: int,
-        single_cls: bool,
-    ):
-        self.single_cls = single_cls
-        self.merger = PatchMerger(size_factor)
-        self.wbf = WeightedBoxesFusionProccessor(
-            pre_wbf_detections, wbf_ios_thresh, max_detections
-        )
-
-    @torch.no_grad()
-    def forward(self, x: tuple[list[Patch], list[torch.Tensor]]) -> torch.Tensor:
-        boxes = self.merger.forward(x)
-        if self.single_cls:
-            boxes[:, 5] = 0
-        if len(boxes) == 0:
-            return torch.empty((0, 6))
-        return self.wbf.forward(boxes)
-
-
-# Optimized Detection class: Passes parameters to YOLO predict
 class Detector:
     def __init__(
         self,
@@ -202,35 +127,51 @@ class Detector:
         self.conf = conf_thresh
         self.iou = nms_iou_thresh
         self.max_det = max_patch_detections
-        self.batch = patch_per_batch
-        self.imgsz = patch_size
-        self.preprocessor = Preprocessor(patch_size, overlap, size_factor)
-        self.yolo = YOLO(model_path, task="detect")
-        self.postproccessor = Postprocessor(
-            size_factor, pre_wbf_detections, wbf_ios_thresh, max_detections, single_cls
-        )
+        self.batch_size = patch_per_batch
+        self.patch_size = patch_size
+        self.size_factor = size_factor
+        self.wbf_ios_thresh = wbf_ios_thresh
+        self.pre_wbf_detections = pre_wbf_detections
+        self.max_detections = max_detections
+        self.overlap = overlap
+        self.model = YOLO(model_path, task="detect")
 
+    @torch.no_grad()
     def forward(self, image: Image.Image):
-        patches, batch_tensor = self.preprocessor.forward(image)
-        preds_result = self.yolo.predict(
-            source=batch_tensor,
+        # Preprocessing
+        resized = resize_image(image, self.size_factor)
+        patches, batch = create_patches(resized, self.patch_size, self.overlap)
+        
+        # Batch prediction
+        results = self.model.predict(
+            source=batch.to(self.device),
             conf=self.conf,
             iou=self.iou,
+            imgsz=self.patch_size,
             max_det=self.max_det,
-            imgsz=self.imgsz,
             device=self.device,
             verbose=False,
+            batch=self.batch_size
         )
-        preds_boxes = [res.boxes.data.clone() for res in preds_result]
-        preds_boxes = self.postproccessor.forward((patches, preds_boxes))
-
+        
+        # Postprocessing
+        merged = merge_predictions(patches, [r.boxes.data for r in results], self.size_factor)
+        final = weighted_box_fusion(
+            merged, 
+            self.wbf_ios_thresh,
+            self.pre_wbf_detections,
+            self.max_detections,
+            self.single_cls
+        )
+        
+        # Format results
+        names = {0: "object"} if self.single_cls else \
+               self.model.model.names if hasattr(self.model.model, "names") else \
+               self.model.model.module.names
+        
         return Results(
-            np.asarray(image)[..., ::-1],
-            "",
-            (
-                self.yolo.model.module.names
-                if hasattr(self.yolo.model, "module")
-                else self.yolo.model.names
-            ) if not self.single_cls else {0: "object"},
-            boxes=preds_boxes,
-        ).cpu().numpy()
+            orig_img=np.array(image)[..., ::-1],
+            path="",
+            names=names,
+            boxes=final.cpu()
+        ).numpy()
