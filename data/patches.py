@@ -61,71 +61,14 @@ class Patch:
 def crop_patches(
     image: Image.Image | np.ndarray, patches: list[Patch]
 ) -> list[np.ndarray | Image.Image]:
-    """
-    Crop patches from an image, handling boundary cases by padding if necessary.
-    
-    Args:
-        image: The input image (PIL Image or numpy array)
-        patches: List of Patch objects with coordinates
-        patch_size: The expected size of each patch
-    
-    Returns:
-        List of cropped image patches, all with the same size
-    """
-    result = []
-    
     if isinstance(image, Image.Image):
-        width, height = image.size
-  
-        for patch in patches:
-            patch_width = patch.xmax - patch.xmin
-            patch_height = patch.ymax - patch.ymin
-            # Check if patch exceeds image boundaries
-            if patch.xmax <= width and patch.ymax <= height:
-                # Full patch is within image
-                result.append(image.crop(patch.xyxy))
-            else:
-                # Patch exceeds boundaries, create new image with padding
-                new_patch = Image.new(image.mode, (patch_width, patch_height), (0, 0, 0))
-                # Calculate valid region
-                valid_xmax = min(patch.xmax, width)
-                valid_ymax = min(patch.ymax, height)
-                # Crop valid part of the image
-                if valid_xmax > patch.xmin and valid_ymax > patch.ymin:
-                    valid_part = image.crop((patch.xmin, patch.ymin, valid_xmax, valid_ymax))
-                    # Paste the valid part into the new image
-                    new_patch.paste(valid_part, (0, 0))
-                result.append(new_patch)
+        return [image.crop(patch.xyxy) for patch in patches]
     else:
-        # For numpy arrays
-        height, width = image.shape[:2]
-        for patch in patches:
-            patch_width = patch.xmax - patch.xmin
-            patch_height = patch.ymax - patch.ymin
-            # Create a blank patch of the right size
-            if len(image.shape) == 3:
-                blank_patch = np.zeros((patch_width, patch_height, image.shape[2]), dtype=image.dtype)
-            else:
-                blank_patch = np.zeros((patch_width, patch_height), dtype=image.dtype)
-            
-            # Calculate valid region
-            valid_xmin, valid_ymin = patch.xmin, patch.ymin
-            valid_xmax = min(patch.xmax, width)
-            valid_ymax = min(patch.ymax, height)
-            
-            # Calculate valid dimensions
-            valid_width = valid_xmax - valid_xmin
-            valid_height = valid_ymax - valid_ymin
-            
-            if valid_width > 0 and valid_height > 0:
-                # Copy the valid part of the image into the blank patch
-                valid_part = image[valid_ymin:valid_ymax, valid_xmin:valid_xmax]
-                blank_patch[:valid_height, :valid_width] = valid_part
-            
-            result.append(blank_patch)
-    
-    return result
-
+        return [
+            image[patch.ymin : patch.ymax, patch.xmin : patch.xmax, :]
+            for patch in patches
+        ]
+        
 def make_patches(
     width: int, height: int, patch_size: int, overlap: float
 ) -> tuple[int, int, list[Patch]]:
@@ -151,22 +94,25 @@ def make_patches(
 
     """
     overlap_size = int(patch_size * overlap)
-    no_overlap_size = patch_size - overlap_size
-
-    imgs_per_width = math.ceil(float(width) / no_overlap_size)
-    imgs_per_height = math.ceil(float(height) / no_overlap_size)
-
-    padded_height = imgs_per_width * no_overlap_size + overlap_size
-    padded_width = imgs_per_width * no_overlap_size + overlap_size
+    stride = patch_size - overlap_size
+    
+    ymin = 0
 
     patches = []
-
-    for row in range(imgs_per_height):
-        for col in range(imgs_per_width):
-            xmin, ymin = col * no_overlap_size, row * no_overlap_size
-            xmax, ymax = xmin + patch_size, ymin + patch_size
+    
+    while ymin <= height:
+        xmin = 0
+        ymax = ymin + patch_size
+        while xmin <= width:
+            xmax = xmin + patch_size
             patch_box = (xmin, ymin, xmax, ymax)
-
             patches.append(Patch(*patch_box))
+            xmin += stride
+            if  xmax >= width:
+                break
+        ymin += stride
+        if  ymax >= height:
+            break
+            
 
-    return padded_width, padded_height, patches
+    return xmax, ymax, patches

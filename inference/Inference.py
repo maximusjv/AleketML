@@ -1,7 +1,6 @@
 from PIL import Image
 import numpy as np
 import torch
-import torchvision.ops.boxes as ops
 from ultralytics.engine.results import Results, Boxes
 
 from metrics.utils import box_area
@@ -45,6 +44,10 @@ class Inference:
         self.classificator = classificator
         self.offset = offset
         
+    @property
+    def names(self):
+        return self.classificator.model.names
+        
     def detect(self, image: Image.Image) -> Results:
         """Run object detection on an image."""
         det_results = self.detector.forward(image)
@@ -55,7 +58,7 @@ class Inference:
         patches = [Patch(*box).expand(self.offset) for box in boxes.xyxy.tolist()]
         return crop_patches(image, patches), patches
     
-    def classify(self, patched_images: List[Image.Image]) -> Tuple[np.ndarray, np.ndarray]:
+    def classify(self, patched_images: List[Image.Image], to_classes, from_classes) -> Tuple[np.ndarray, np.ndarray]:
         """Classify the patched images."""
         if not patched_images:
             return np.array([]), np.array([])
@@ -63,7 +66,7 @@ class Inference:
         cls_results = self.classificator.forward(patched_images)
         
         # Batch processing of results
-        classes = np.array([result.probs.top1 for result in cls_results])
+        classes = np.array([from_classes[to_classes[result.probs.top1]] for result in cls_results])
         confidences = np.array([result.probs.top1conf for result in cls_results])
         
         return classes, confidences
@@ -71,7 +74,7 @@ class Inference:
     def merge_detect_and_classification(
         self, 
         image: Image.Image, 
-        boxes: Boxes, 
+        boxes: np.ndarray, 
         classes: np.ndarray, 
         confidences: np.ndarray
     ) -> Results:
@@ -85,15 +88,20 @@ class Inference:
             )
             
         # Update class information
-        boxes_data = boxes.data.clone()
-        boxes_data[:, 5] = torch.tensor(classes, device=boxes_data.device)
+        keep = classes != 0
+        boxes = boxes[keep]
+        classes = classes[keep]
+        confidences = confidences[keep]
+        
+        boxes[:, 5] = classes
+        boxes[:, 4] = confidences
         
         # Create results object
         results = Results(
             np.asarray(image)[..., ::-1],
             "",
             self.classificator.model.names,
-            boxes=Boxes(boxes_data, boxes.orig_shape)
+            boxes=boxes
         )
         results.orig_img = None  # Free memory
         
@@ -105,7 +113,7 @@ class Inference:
         
         # Detection step
         det_results = self.detect(image)
-        detections = det_results.boxes
+        detections = det_results.boxes.data.clone()
         
         # Skip classification if no detections
         if len(detections) == 0:

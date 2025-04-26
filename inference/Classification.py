@@ -16,9 +16,9 @@ class Classificator:
         batch_tensor = (
             torch.from_numpy(batch_np).permute(0, 3, 1, 2).float() / 255.0
         )
-        return self.model.predict(batch_tensor,
+        return [y.cpu().numpy() for y in self.model.predict(batch_tensor,
                                   device=self.device, 
                                   imgsz=self.img_size,
                                   verbose=False,
-                                    )
+                                    )]
     

@@ -7,12 +7,9 @@ from contextlib import redirect_stdout
 import copy
 from ultralytics.engine.results import Results
 
-def load_as_coco(coco_api_dataset):
-    with redirect_stdout(io.StringIO()):  # Suppress COCO output during creation
-        coco_ds = COCO()
-        coco_ds.dataset = coco_api_dataset
-        coco_ds.createIndex()
-    return coco_ds
+
+
+
 
 
 def stats_dict(stats: np.ndarray):
@@ -47,9 +44,11 @@ class CocoEvaluator:
         Args:
             gt_dataset: The ground truth dataset, either a Dataset or a COCO dataset object.
         """
-  
-        gt_dataset = load_as_coco(gt_dataset)
-        self.coco_gt = copy.deepcopy(gt_dataset)
+        with redirect_stdout(io.StringIO()):  # Suppress COCO output during creation
+            self.coco_gt = COCO()
+            self.coco_gt.dataset = gt_dataset
+            self.coco_gt.createIndex()
+       
         
 
 
@@ -64,7 +63,7 @@ class CocoEvaluator:
             if not results:  # Check if prediction is empty
                 continue
 
-            boxes = results.boxes.xyxy
+            boxes = results.boxes.xyxy.clone()
             boxes[:, 2:] -= boxes[:, :2]
             boxes = boxes.tolist()
             scores = results.boxes.conf.tolist()

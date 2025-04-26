@@ -207,8 +207,8 @@ class Detector:
             orig_img=np.array(image)[..., ::-1],
             path="",
             names=names,
-            boxes=final.cpu()
-        )
+            boxes=final
+        ).cpu().numpy()
         
         # Optimize memory usage
         result.orig_img = None
