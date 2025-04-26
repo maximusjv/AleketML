@@ -110,9 +110,7 @@ def autosplit_detect(
 from .converting_to_yolo import prepare_yolo_dataset
 from .detection_to_classification import prepare_classification_dataset
 from .patch_yolo import patch_yolo_dataset
-from .patches import Patch, crop_patches, make_patches
 
 __all__ = ["patch_yolo_dataset", "prepare_classification_dataset", "prepare_yolo_dataset",
-           "autosplit_detect", "remove_background_images", "setup_directories", "gdownload",
-           "Patch", "crop_patches", "make_patches", "expand_patch"
+           "autosplit_detect", "remove_background_images", "setup_directories", "gdownload"
            ]

@@ -4,7 +4,7 @@ import torch
 import torchvision.ops as ops
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
-from data import Patch, make_patches, crop_patches
+from ..utils.boxes import Patch, make_patches, crop_patches
 from typing import List, Tuple, Dict, Union, Optional
 
 def load_image(image: Union[str, Image.Image]) -> Image.Image:

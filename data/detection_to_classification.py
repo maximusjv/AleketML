@@ -7,7 +7,7 @@ from tqdm import tqdm
 from statistics import mean
 
 from .load import load_split_list, load_yolo
-from .patches import Patch
+from ..utils.boxes import Patch
 
 def compute_iou(boxA: Patch, boxB: Patch):
     """

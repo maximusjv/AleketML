@@ -6,7 +6,7 @@ import shutil
 from tqdm import tqdm
 
 from . import setup_directories, autosplit_detect
-from .patches import Patch
+from ..utils.boxes import Patch
 from PIL import Image
  
 def prepare_yolo_dataset(config: dict):

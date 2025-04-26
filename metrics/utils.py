@@ -1,19 +1,6 @@
 from typing import Any, Tuple
 import numpy as np
-
-def box_area(boxes: np.ndarray) -> np.ndarray:
-    """
-    Calculate the area of bounding boxes.
-
-    Args:
-        boxes: Array of shape (N, 4) with [x1, y1, x2, y2] format.
-
-    Returns:
-        Array of shape (N,) with the area of each box.
-    """
-    width = np.clip(boxes[:, 2] - boxes[:, 0], a_min=0, a_max=None)
-    height = np.clip(boxes[:, 3] - boxes[:, 1], a_min=0, a_max=None)
-    return width * height
+from ..utils.boxes import box_iou
 
 def get_classify_ground_truth(predict_boxes: np.ndarray,
                               gt_boxes: np.ndarray,
@@ -38,32 +25,6 @@ def ensure_array(data: Any) -> np.ndarray:
             f"Warning: Could not convert data of type {type(data)} to array: {e}. Returning empty array."
         )
         return np.empty(0)  # Or raise error, or return None
-
-
-def box_iou(boxes1: np.ndarray, boxes2: np.ndarray) -> np.ndarray:
-    """
-    Compute IoU between boxes1 and boxes2.
-    
-    Args:
-        boxes1: array of shape (N, 4) with [x1, y1, x2, y2] format
-        boxes2: array of shape (M, 4) with [x1, y1, x2, y2] format
-        
-    Returns:
-        IoU matrix of shape (N, M)
-    """
-    area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
-    area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
-    
-    # Expand dimensions to compute IoU matrix
-    lt = np.maximum(boxes1[:, None, :2], boxes2[None, :, :2])  # [N,M,2]
-    rb = np.minimum(boxes1[:, None, 2:], boxes2[None, :, 2:])  # [N,M,2]
-    
-    wh = np.clip(rb - lt, a_min=0, a_max=None)  # [N,M,2]
-    intersection = wh[:, :, 0] * wh[:, :, 1]  # [N,M]
-    
-    union = area1[:, None] + area2[None, :] - intersection
-    
-    return intersection / np.maximum(union, 1e-10)
 
 
 def match_gts_dts(

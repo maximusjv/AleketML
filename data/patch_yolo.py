@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw
 from tqdm import tqdm
 from . import autosplit_detect, setup_directories
 from .load import load_yolo
-from .patches import Patch, make_patches, crop_patches
+from ..utils.boxes import Patch, make_patches, crop_patches
 
 def remove_background_images(root_dir: str, removal_percentage: float):
     """Remove a percentage of images that have no annotations."""

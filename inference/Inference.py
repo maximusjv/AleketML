@@ -7,7 +7,7 @@ from metrics.utils import box_area
 
 from .Detection import Detector
 from .Classification import Classificator
-from data.patches import Patch, crop_patches
+from utils.boxes import Patch, crop_patches
 
 from typing import List, Tuple, Dict, Union, Optional
 # Utility function to load an image
