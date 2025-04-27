@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from ultralytics.engine.results import Results, Boxes
 
-from metrics.utils import box_area
+from utils.boxes import box_area
 
 from .Detection import Detector
 from .Classification import Classificator

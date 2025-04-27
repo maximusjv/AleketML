@@ -1,6 +1,6 @@
 from typing import Any, Tuple
 import numpy as np
-from ..utils.boxes import box_iou
+from utils.boxes import box_iou
 
 def get_classify_ground_truth(predict_boxes: np.ndarray,
                               gt_boxes: np.ndarray,

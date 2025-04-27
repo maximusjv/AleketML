@@ -63,7 +63,7 @@ class CocoEvaluator:
             if not results:  # Check if prediction is empty
                 continue
 
-            boxes = results.boxes.xyxy.clone()
+            boxes = results.boxes.xyxy.copy()
             boxes[:, 2:] -= boxes[:, :2]
             boxes = boxes.tolist()
             scores = results.boxes.conf.tolist()
