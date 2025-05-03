@@ -38,7 +38,7 @@ class Inference:
         self, 
         detector: Detector, 
         classificator: Classificator, 
-        offset: float = 0.5
+        offset: float = 0.5,
     ):
         self.detector = detector
         self.classificator = classificator
@@ -58,7 +58,7 @@ class Inference:
         patches = [Patch(*box).expand(self.offset) for box in boxes.xyxy.tolist()]
         return crop_patches(image, patches), patches
     
-    def classify(self, patched_images: List[Image.Image], to_classes, from_classes) -> Tuple[np.ndarray, np.ndarray]:
+    def classify(self, patched_images: List[Image.Image]) -> Tuple[np.ndarray, np.ndarray]:
         """Classify the patched images."""
         if not patched_images:
             return np.array([]), np.array([])
@@ -66,7 +66,7 @@ class Inference:
         cls_results = self.classificator.forward(patched_images)
         
         # Batch processing of results
-        classes = np.array([from_classes[to_classes[result.probs.top1]] for result in cls_results])
+        classes = np.array([result.probs.top1 for result in cls_results])
         confidences = np.array([result.probs.top1conf for result in cls_results])
         
         return classes, confidences

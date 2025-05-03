@@ -88,6 +88,7 @@ class CocoEvaluator:
         coco_dt = self.coco_gt.loadRes(coco_dt)
         coco = COCOeval(self.coco_gt, coco_dt, iouType="bbox")
         coco.params.useCats = useCats
+        coco.params.catIds = [0, 1, 2] if not useCats else [1,2]
         coco.evaluate()
         coco.accumulate()
         coco.summarize()
