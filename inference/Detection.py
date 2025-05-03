@@ -1,7 +1,7 @@
 from PIL import Image
 import numpy as np
 import torch
-import torchvision.ops as ops
+from ultralytics.utils import ops
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 from utils.boxes import Patch, make_patches, crop_patches
@@ -167,36 +167,48 @@ class Detector:
         self.max_detections = max_detections
         self.overlap = overlap
         self.model = YOLO(model_path, task="detect")
-
+        
+        self.resizer_profiler = ops.Profile()
+        self.patches_profiler = ops.Profile()
+        self.yolo_detector_profiler = ops.Profile()
+        self.merge_predictions_profiler = ops.Profile()
+        self.wbf_profiler = ops.Profile()
+        
     @torch.no_grad()
     def forward(self, image: Image.Image) -> Results:
         """Run detection on an image using patched approach."""
         # Preprocessing
         image = load_image(image)
-        resized = resize_image(image, self.size_factor)
-        patches, batch = create_patches(resized, self.patch_size, self.overlap)
+        with self.resizer_profiler:
+            resized = resize_image(image, self.size_factor)
+        with self.patches_profiler:
+            patches, batch = create_patches(resized, self.patch_size, self.overlap)
         
         # Batch prediction
-        results = self.model.predict(
-            source=batch.to(self.device),
-            conf=self.conf,
-            iou=self.iou,
-            imgsz=self.patch_size,
-            max_det=self.max_det,
-            device=self.device,
-            verbose=False,
-            batch=self.batch_size
-        )
+        with self.yolo_detector_profiler:
+            results = self.model.predict(
+                source=batch.to(self.device),
+                conf=self.conf,
+                iou=self.iou,
+                imgsz=self.patch_size,
+                max_det=self.max_det,
+                device=self.device,
+                verbose=False,
+                batch=self.batch_size
+            )
+
         
         # Postprocessing
-        merged = merge_predictions(patches, [r.boxes.data for r in results], self.size_factor)
-        final = weighted_box_fusion(
-            merged, 
-            self.wbf_ios_thresh,
-            self.pre_wbf_detections,
-            self.max_detections,
-            self.single_cls
-        )
+        with self.merge_predictions_profiler:
+            merged = merge_predictions(patches, [r.boxes.data for r in results], self.size_factor)  
+        with self.wbf_profiler:
+            final = weighted_box_fusion(
+                merged, 
+                self.wbf_ios_thresh,
+                self.pre_wbf_detections,
+                self.max_detections,
+                self.single_cls
+            )
         
         # Format results
         names = {0: "object"} if self.single_cls else \

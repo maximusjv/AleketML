@@ -2,6 +2,7 @@ from PIL import Image
 import numpy as np
 import torch
 from ultralytics.engine.results import Results, Boxes
+from ultralytics.utils import ops
 
 from utils.boxes import box_area
 
@@ -44,31 +45,41 @@ class Inference:
         self.classificator = classificator
         self.offset = offset
         
+        self.detect_profiler = ops.Profile(device=0)
+        self.patch_profiler = ops.Profile(device=0)
+        self.classify_profiler = ops.Profile(device=0)
+        self.merge_profiler = ops.Profile(device=0)
+        
     @property
     def names(self):
         return self.classificator.model.names
         
     def detect(self, image: Image.Image) -> Results:
         """Run object detection on an image."""
-        det_results = self.detector.forward(image)
+        with self.detect_profiler:
+            det_results = self.detector.forward(image)
         return det_results
     
     def patch(self, image: Image.Image, boxes: Boxes) -> Tuple[List[Image.Image], List[Patch]]:
         """Create and crop patches from detected boxes."""
-        patches = [Patch(*box).expand(self.offset) for box in boxes.xyxy.tolist()]
-        return crop_patches(image, patches), patches
+        with self.patch_profiler:
+            patches = [Patch(*box).expand(self.offset) for box in boxes.xyxy.tolist()]
+            crops = crop_patches(image, patches), patches
+        return crops
     
     def classify(self, patched_images: List[Image.Image]) -> Tuple[np.ndarray, np.ndarray]:
         """Classify the patched images."""
-        if not patched_images:
-            return np.array([]), np.array([])
-            
-        cls_results = self.classificator.forward(patched_images)
-        
-        # Batch processing of results
-        classes = np.array([result.probs.top1 for result in cls_results])
-        confidences = np.array([result.probs.top1conf for result in cls_results])
-        
+        with self.classify_profiler:
+            if len(patched_images) == 0:
+                return np.array([]), np.array([])
+            else:
+                    
+                cls_results = self.classificator.forward(patched_images)
+                
+                # Batch processing of results
+                classes = np.array([result.probs.top1 for result in cls_results])
+                confidences = np.array([result.probs.top1conf for result in cls_results])
+                
         return classes, confidences
     
     def merge_detect_and_classification(
@@ -79,31 +90,34 @@ class Inference:
         confidences: np.ndarray
     ) -> Results:
         """Merge detection and classification results."""
-        if len(classes) == 0:
-            return Results(
-                np.asarray(image)[..., ::-1],
-                "",
-                self.classificator.model.names,
-                boxes=boxes,
-            )
+        
+        with self.merge_profiler:
+            if len(classes) == 0:
+                results = Results(
+                    np.asarray(image)[..., ::-1],
+                    "",
+                    self.classificator.model.names,
+                    boxes=boxes,
+                )
+            else: 
             
-        # Update class information
-        keep = classes != 0
-        boxes = boxes[keep]
-        classes = classes[keep]
-        confidences = confidences[keep]
-        
-        boxes[:, 5] = classes
-        boxes[:, 4] = confidences
-        
-        # Create results object
-        results = Results(
-            np.asarray(image)[..., ::-1],
-            "",
-            self.classificator.model.names,
-            boxes=boxes
-        )
-        results.orig_img = None  # Free memory
+                # Update class information
+                keep = classes != 0
+                boxes = boxes[keep]
+                classes = classes[keep]
+                confidences = confidences[keep]
+                
+                boxes[:, 5] = classes
+                boxes[:, 4] = confidences
+                
+                # Create results object
+                results = Results(
+                    np.asarray(image)[..., ::-1],
+                    "",
+                    self.classificator.model.names,
+                    boxes=boxes
+                )
+                results.orig_img = None  # Free memory
         
         return results
     

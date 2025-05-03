@@ -133,10 +133,17 @@ def load_as_coco(source: str | list, classes: dict = {}):
     return coco_api_dataset, names_to_ids
         
 
-def loader(source: str | list):
-    image_list = load_image_files(source)
-    for image_path in image_list:
-        image_name =   image_name = os.path.splitext(os.path.basename(image_path))[0]
-        image = Image.open(image_path)
-        yield image_name, image                  
+class loader:
+    def __init__(self, source: str | list):
+        self.image_list = load_image_files(source)
+    
+    def __iter__(self):
+        for image_path in self.image_list:
+            image_name =   image_name = os.path.splitext(os.path.basename(image_path))[0]
+            image = Image.open(image_path)
+            yield image_name, image  
+            
+    def __len__(self):
+        return len(self.image_list)
+                    
     
