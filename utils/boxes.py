@@ -63,8 +63,89 @@ def expand(boxes: np.ndarray, offset: float) -> np.ndarray:
     expanded_patches = np.stack([x1, y1, x2, y2], axis=1)
     return expanded_patches
 
+def clamp(boxes: np.ndarray, clamp: tuple) -> np.ndarray:
+    clamped = boxes.copy()
+    clamped[:, [0, 2]] = np.clip(boxes[:, [0, 2]], clamp[0], clamp[2])
+    clamped[:, [0, 3]] = np.clip(boxes[:, [0, 3]], clamp[1], clamp[3])
+    clamped[:, [0, 2]] -= [clamp[0], clamp[0]]
+    clamped[:, [1, 3]] -= [clamp[1], clamp[1]]
+    return clamped
 
+def vectorized_make_patches(
+    width: int, height: int, patch_size: int, overlap: float
+) -> tuple[int, int, np.ndarray]:
+    overlap_size = int(patch_size * overlap)
+    stride = patch_size - overlap_size
 
+    # Generate grid of top-left (xmin, ymin) coordinates
+    x_starts = np.arange(0, width, stride)
+    y_starts = np.arange(0, height, stride)
+
+    # Clip so patches don't go beyond width/height
+    x_starts = x_starts[x_starts + patch_size <= width + stride]
+    y_starts = y_starts[y_starts + patch_size <= height + stride]
+
+    # Create grid of (xmin, ymin)
+    xv, yv = np.meshgrid(x_starts, y_starts)
+    xv = xv.flatten()
+    yv = yv.flatten()
+
+    # Compute (xmax, ymax)
+    xmax = xv + patch_size
+    ymax = yv + patch_size
+
+    # Create list of Patch objects
+    patches = np.concatenate((xv, yv, xmax, ymax), axis=0).T
+
+    padded_width = max(xmax)
+    padded_height = max(ymax)
+
+    return padded_width, padded_height, patches
+
+def vectorized_crop_patches(
+    image: Image.Image | np.ndarray, patches: np.ndarray
+) -> list[np.ndarray | Image.Image]:
+    """
+    Crop patches from an image based on patch coordinates using optimized methods.
+    
+    Args:
+        image: Input image, either PIL Image or numpy array
+        patches: Numpy array of shape [N, 4] with each row containing [xmin, ymin, xmax, ymax]
+    
+    Returns:
+        List of cropped patches
+    """
+    if isinstance(image, Image.Image):
+        # For PIL images, we still need to iterate but can convert coordinates directly
+        patches_int = patches.astype(int)
+        return [image.crop((x1, y1, x2, y2)) for x1, y1, x2, y2 in patches_int]
+    else:
+        # For numpy arrays, pre-convert to int to avoid repeated conversions
+        patches_int = patches.astype(int)
+        
+        # Create output array of appropriate size to hold all patches
+        n_patches = patches.shape[0]
+        patch_heights = patches_int[:, 3] - patches_int[:, 1]
+        patch_widths = patches_int[:, 2] - patches_int[:, 0]
+        
+        # Convert single loop to vectorized operation if all patches are the same size
+        if np.all(patch_heights == patch_heights[0]) and np.all(patch_widths == patch_widths[0]):
+            # If all patches are the same size, we can use a more efficient approach
+            h, w = patch_heights[0], patch_widths[0]
+            result = np.zeros((n_patches, h, w, image.shape[2]), dtype=image.dtype)
+            
+            for i in range(n_patches):
+                y1, x1, y2, x2 = patches_int[i, 1], patches_int[i, 0], patches_int[i, 3], patches_int[i, 2]
+                result[i] = image[y1:y2, x1:x2, :]
+                
+            return result
+        else:
+            # If patches have different sizes, we still need to process individually
+            return [
+                image[y1:y2, x1:x2, :] 
+                for x1, y1, x2, y2 in zip(patches_int[:, 0], patches_int[:, 1], 
+                                          patches_int[:, 2], patches_int[:, 3])
+            ]
 class Patch:
     """
     A class representing a patch of an image.

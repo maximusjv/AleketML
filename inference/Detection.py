@@ -2,8 +2,8 @@ from PIL import Image
 import numpy as np
 import torch
 from ultralytics.utils import ops
-from ultralytics import YOLO
 from ultralytics.engine.results import Results
+from .DetectModelInterface import ModelInterface
 from utils.boxes import Patch, make_patches, crop_patches
 from typing import List, Tuple, Dict, Union, Optional
 
@@ -166,7 +166,7 @@ class Detector:
         self.pre_wbf_detections = pre_wbf_detections
         self.max_detections = max_detections
         self.overlap = overlap
-        self.model = YOLO(model_path, task="detect")
+        self.model = ModelInterface(model_path, yolo=False)
         
         self.resizer_profiler = ops.Profile()
         self.patches_profiler = ops.Profile()
@@ -193,14 +193,13 @@ class Detector:
                 imgsz=self.patch_size,
                 max_det=self.max_det,
                 device=self.device,
-                verbose=False,
                 batch=self.batch_size
             )
 
         
         # Postprocessing
         with self.merge_predictions_profiler:
-            merged = merge_predictions(patches, [r.boxes.data for r in results], self.size_factor)  
+            merged = merge_predictions(patches, [r for r in results], self.size_factor)  
         with self.wbf_profiler:
             final = weighted_box_fusion(
                 merged, 
