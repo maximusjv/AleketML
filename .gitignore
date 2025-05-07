@@ -9,3 +9,4 @@ model.pth
 output/
 *eval*/
 AleketML.code-workspace
+runs

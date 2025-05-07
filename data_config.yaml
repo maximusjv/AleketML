@@ -1,0 +1,9 @@
+path: ../datasets/orobanche_cummana/patched
+
+train: ./autosplit_train.txt
+val: ./autosplit_val.txt 
+
+names:
+  0: background
+  1: healthy
+  2: necrotic
