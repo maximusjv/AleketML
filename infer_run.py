@@ -1,5 +1,7 @@
 import argparse
 
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run inference and generate statistics."
@@ -87,9 +89,10 @@ def main():
     
     from utils.infer import load_model, load_pathes, infer
     from utils.consts import NUM_TO_CLASSES
-    from utils.predictor import Predictor
+    from inference.predictor import Predictor
+    from inference.models import FasterRCNN_ResNet50_FPN_v2
     
-    model = load_model(args.model_path, device)
+    model = FasterRCNN_ResNet50_FPN_v2(args.model_path)
     pathes = load_pathes(args.images_path)
     
     print(f"******MODEL LOADED******")   
