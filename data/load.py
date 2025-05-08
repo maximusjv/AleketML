@@ -34,14 +34,21 @@ def load_yolo(source: str | list) -> dict:
     
     for image_file in image_files:
         image_name = os.path.splitext(os.path.basename(image_file))[0]
-        
+        annotations[image_name] = load_yolo_labels(image_file)
+                            
+    return annotations
+    
+def load_yolo_labels(image_file):
+        """Retrieves annotations for the specified image file."""
+        image_name = os.path.splitext(os.path.basename(image_file))[0]
         label_dir = os.path.normpath(os.path.join(os.path.dirname(image_file), '..', 'labels'))
         label_file = os.path.join(label_dir, f"{image_name}.txt")
-        # Load image to get dimensions
+        
         image = Image.open(image_file)
         img_width, img_height = image.size
-     
-        annotations[image_name] = []
+        image.close()
+        
+        annotations = []
         
         if os.path.exists(label_file):
             with open(label_file, 'r') as f:
@@ -58,11 +65,10 @@ def load_yolo(source: str | list) -> dict:
                             x2 = (x_center + width/2) * img_width
                             y2 = (y_center + height/2) * img_height
                             
-                            annotations[image_name].append([x1, y1, x2, y2, cat])
-                            
-    return annotations
+                            annotations.append([x1, y1, x2, y2, cat])
+        
+        return annotations
     
-
 def load_as_coco(source: str | list, classes: dict = {}):
     """Converts a custom dataset to COCO API format.
     Args:

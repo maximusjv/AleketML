@@ -1,7 +1,7 @@
 import json
 import os
 import shutil
-
+from PIL import Image
 import PIL.Image
 
 import torch
@@ -10,7 +10,7 @@ import torchvision.transforms.v2 as v2
 import torchvision.tv_tensors as tv_tensors
 
 from utils.consts import collate_fn
-
+from data.load import load_image_files, load_yolo_labels
 
 def download_dataset(save_dir, patched_dataset_gdrive_id=""):
     """Downloads and extracts the dataset if it doesn't exist locally.
@@ -43,31 +43,27 @@ class AleketDataset(Dataset):
             Augmentation transforms to apply to the images and bounding boxes.
     """
 
-    def __init__(self, dataset_dir, augmentation=None):
-        self.img_dir = os.path.join(dataset_dir, "imgs")
-
-        with open(os.path.join(dataset_dir, "dataset.json"), "r") as annot_file:
-            self.dataset = json.load(annot_file)
-
-        self.ind_to_image = list(self.dataset.keys())
-        self.image_to_ind = {img: i for i, img in enumerate(self.ind_to_image)}
+    def __init__(self, source, augmentation=None):
+        
+        self.image_files = load_image_files(source)
+        
+        self.image_names = [os.path.basename(file) for file in self.image_files]
+        self.image_to_ind = {img: i for i, img in enumerate(self.image_names)}
 
         self.default_transforms = v2.ToDtype(torch.float32, scale=True)
-
         self.augmentation = augmentation
-        print(f"Dataset loaded from {dataset_dir}")
 
     def to_indices(self, indices=None):
         """Converts a list of image names or indices to a list of indices."""
         if indices is None:
-            return list(range(len(self.dataset)))
+            return list(range(len(self.image_files)))
         return [self.image_to_ind[i] if isinstance(i, str) else i for i in indices]
 
     def to_names(self, indices=None):
         """Converts a list of image names or indices to a list of names."""
         if indices is None:
-            return list(range(len(self.dataset)))
-        return [self.ind_to_image[i] if isinstance(i, str) else i for i in indices]
+            return self.image_names
+        return [self.image_names[i] if isinstance(i, int) else i for i in indices]
 
     def by_full_images(self):
         """Groups image indices by their corresponding full image ID.
@@ -77,29 +73,40 @@ class AleketDataset(Dataset):
                 corresponding image indices in the dataset.
         """
         by_full_images = {}
-        for idx, name in enumerate(self.ind_to_image):
+        for idx, name in enumerate(self.image_names):
             full_image_id = name.split("_")[0]
             if full_image_id not in by_full_images:
                 by_full_images[full_image_id] = []
             by_full_images[full_image_id].append(name)
         return by_full_images
 
+    def get_yolo(self, idx):
+        image_file = self.image_files[idx]
+        return load_yolo_labels(image_file)
+    
+    def get_coco(self, idx):
+        yolo = torch.as_tensor(self.get_yolo(idx))
+        boxes = yolo[:, :4]
+        labels = yolo[:, 5]
+        
+        return {
+            "image_id": idx,
+            "labels": labels.squeeze(),
+            "boxes": boxes, 
+        }
+        
     def get_annots(self, indices=None):
         """Retrieves annotations for the specified indices."""
         indices = self.to_indices(indices)
         targets = [
-            {
-                "image_id": idx,
-                "labels": self.dataset[self.ind_to_image[idx]]["category_id"],
-                "boxes": self.dataset[self.ind_to_image[idx]]["boxes"],
-            }
+            self.get_coco(idx)
             for idx in indices
         ]
         return targets
 
     def __len__(self):
         """Returns the total number of images in the dataset."""
-        return len(self.ind_to_image)
+        return len(self.image_names)
 
     def __getitem__(self, idx):
         """
@@ -112,13 +119,10 @@ class AleketDataset(Dataset):
             tuple: A tuple containing the image as a torchvision.tv_tensors.Image object
                 and a dictionary of target annotations.
         """
-        image_id = self.ind_to_image[idx]
 
-        annots = self.dataset[image_id]
+        annots = self.get_coco(idx)
         labels, bboxes = annots["category_id"], annots["boxes"]
-
-        img_path = os.path.join(f"{self.img_dir}", f"{image_id}.jpeg")
-        img = PIL.Image.open(img_path).convert("RGB")
+        img = PIL.Image.open(self.image_files[idx]).convert("RGB")
 
         img = tv_tensors.Image(img, dtype=torch.uint8)
 
@@ -172,7 +176,7 @@ class AleketDataset(Dataset):
         full_images = list(by_full_images.keys())
         full_images = generator.permutation(full_images)
 
-        total_num_samples = max(2, int(len(self.ind_to_image) * dataset_fraction))
+        total_num_samples = max(2, int(len(self.image_names) * dataset_fraction))
         validation_num_samples = max(1, int(validation_fraction * total_num_samples))
         train_num_samples = total_num_samples - validation_num_samples
 
