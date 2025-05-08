@@ -1,5 +1,4 @@
 *venv*
-*dataset*
 result*
 __pycache__
 .idea
@@ -10,3 +9,4 @@ output/
 *eval*/
 AleketML.code-workspace
 runs
+models/

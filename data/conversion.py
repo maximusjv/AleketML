@@ -1,13 +1,76 @@
+# PHASE 1: Create YOLO annotations from original dataset
+import json
 import os
-from collections import defaultdict
 import random
 import shutil
-from PIL import Image
-from tqdm import tqdm
+from collections import defaultdict
 from statistics import mean
 
+from PIL import Image, ImageDraw
+from tqdm import tqdm
+
+from . import autosplit_detect, setup_directories
 from .load import load_split_list, load_yolo
-from utils.boxes import Patch
+from utils.boxes import Patch, crop_patches, make_patches
+
+
+def prepare_yolo_dataset(config: dict):
+    """
+    Create a YOLO dataset from original annotations without patching.
+    Just copy images and convert annotations to YOLO format.
+    """
+    random.seed(config["seed"])
+    
+    # Setup directories
+    setup_directories(config)
+    
+    # Load dataset
+    dataset_path = os.path.join(config["source"], "dataset.json")
+    dataset = json.load(open(dataset_path))
+    
+    # Process each image
+    for image_name, annotations in tqdm(dataset.items(), desc="Processing images"):
+        # Source paths
+        image_filename = f"{image_name}.jpeg"
+        image_path = os.path.join(config["source"], "imgs", image_filename)
+        
+        # Destination paths
+        dest_image_path = os.path.join(config["destination"], "images", image_filename)
+        dest_label_path = os.path.join(config["destination"], "labels", f"{image_name}.txt")
+        
+        # Copy image if it doesn't exist already
+        if not os.path.exists(dest_image_path):
+            shutil.copy(image_path, dest_image_path)
+        
+        # Create YOLO format labels
+        image = Image.open(image_path)
+        img_width, img_height = image.size
+        
+        with open(dest_label_path, "w") as f:
+            wrote = False
+            for cat, bbox in zip(annotations["category_id"], annotations["boxes"]):
+                patch = Patch(*bbox)
+                x, y, w, h = patch.xywh
+                f.write(f"{cat} {x / img_width} {y / img_height} {w / img_width} {h / img_height}\n")
+                wrote = True
+            
+            if not wrote:
+                os.remove(dest_label_path)
+    
+    # Create autosplit files
+    autosplit_detect(
+        image_dir=os.path.join(config["destination"], "images"),
+        output_dir=config["destination"],
+        train_ratio=0.8,
+    )
+    
+    # Save configuration
+    config_path = os.path.join(config["destination"], "conversion_config.json")
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=4)
+    
+    print(f"YOLO dataset created at {config['destination']}")
+
 
 def compute_iou(boxA: Patch, boxB: Patch):
     """
@@ -237,3 +300,119 @@ def prepare_classification_dataset(config: dict):
                     bg_attempts_multiplier=bg_attempts_multiplier,
                 )
     print(f"\nClassification dataset created at {output_dir}")
+
+
+def remove_background_images(root_dir: str, removal_percentage: float):
+    """Remove a percentage of images that have no annotations."""
+    image_dir = os.path.join(root_dir, "images")
+    label_dir = os.path.join(root_dir, "labels")
+
+    background_images = [
+        os.path.join(image_dir, f)
+        for f in os.listdir(image_dir)
+        if not os.path.exists(os.path.join(label_dir, f.replace(".jpeg", ".txt")))
+    ]
+
+    to_remove = random.sample(
+        background_images, int(len(background_images) * removal_percentage)
+    )
+
+    for image_path in to_remove:
+        os.remove(image_path)
+        label_file = os.path.join(
+            label_dir, os.path.basename(image_path).replace(".jpeg", ".txt")
+        )
+        if os.path.exists(label_file):
+            os.remove(label_file)
+
+    print(f"Removed {len(to_remove)} background images.")
+    
+
+def save_patch_annotations(f, annotations: list, patch: Patch, config: dict, draw_context: ImageDraw.ImageDraw, image_move: bool) -> bool:
+    """Writes YOLO annotations to file for one patch."""
+    wrote = False
+    for row in annotations:
+        cat = row[-1]
+        bbox_patch = Patch(*(row[:-1]))
+        relative_bbox = patch.clamp(bbox_patch)
+        cropped_ratio = 1 - relative_bbox.area / bbox_patch.area if bbox_patch.area else 0
+
+        if cropped_ratio > config["crop_tolerance"]:
+            if cropped_ratio < 1 and config["erase_cropped"] and image_move:
+                draw_context.rectangle(relative_bbox.xyxy, fill="black")
+            continue
+
+        x, y, w, h = [n / config["patch_size"] for n in relative_bbox.xywh]
+        f.write(f"{cat} {x} {y} {w} {h}\n")
+        wrote = True
+
+    return wrote
+
+
+def process_image_for_patching(image_name: str, annotations: list, config: dict):
+    """Process a single image and generate its patches and annotations."""
+    image_filename = f"{image_name}.jpeg"
+    image_path = os.path.join(config["source"], "images", image_filename)
+    image = Image.open(image_path)
+
+    _, _, patch_boxes = make_patches(
+        image.width, image.height, config["patch_size"], config["patch_overlap"]
+    )
+    
+    patches = crop_patches(image, patch_boxes) if config["image_move"] else [None] * len(patch_boxes)
+    
+    for i, (patch, patched_image) in enumerate(zip(patch_boxes, patches)):
+        patch_name = f"{image_name}_{i}.jpeg"
+        patch_label_name = patch_name.replace(".jpeg", ".txt")
+        patch_image_path = os.path.join(config["destination"], "images", patch_name)
+        patch_label_path = os.path.join(
+            config["destination"], "labels", patch_label_name
+        )
+
+        if patched_image is not None:
+            patched_image.save(patch_image_path, quality=100)
+            draw_context = ImageDraw.Draw(patched_image)
+        else:
+            draw_context = None
+
+        with open(patch_label_path, "w") as f:
+            wrote = save_patch_annotations(
+                f, annotations, patch, config, draw_context, config["image_move"]
+            )
+
+        if not wrote:
+            os.remove(patch_label_path)
+
+def patch_yolo_dataset(config: dict):
+    """
+    Create a patched YOLO dataset from an existing YOLO dataset.
+    """
+    random.seed(config["seed"])
+    
+    # Setup directories
+    setup_directories(config)
+    
+    annotations = load_yolo(config["source"])
+    
+    for image_name, annots in tqdm(annotations.items(), desc="Processing images for patching"):      
+        # Process the image for patching
+        process_image_for_patching(image_name, annots, config)
+    
+    if config["image_move"]:
+        remove_background_images(config["destination"], config["background_removal"])
+    
+    # Create autosplit files
+    autosplit_detect(
+        image_dir=os.path.join(config["destination"], "images"),
+        output_dir=config["destination"],
+        train_ratio=0.8,
+    )
+    
+    # Save configuration
+    config_path = os.path.join(config["destination"], "patching_config.json")
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=4)
+    
+    print(f"Patched YOLO dataset created at {config['destination']}")
+    
+    return config["destination"]

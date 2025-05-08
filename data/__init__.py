@@ -3,7 +3,6 @@ import os
 import random
 import shutil
 import zipfile
-from PIL import Image
 import gdown
 
 def gdownload(url: str):
@@ -107,9 +106,7 @@ def autosplit_detect(
 
     
 
-from .converting_to_yolo import prepare_yolo_dataset
-from .detection_to_classification import prepare_classification_dataset
-from .patch_yolo import patch_yolo_dataset
+from .conversion import prepare_yolo_dataset, prepare_classification_dataset, patch_yolo_dataset
 
 __all__ = ["patch_yolo_dataset", "prepare_classification_dataset", "prepare_yolo_dataset",
            "autosplit_detect", "remove_background_images", "setup_directories", "gdownload"

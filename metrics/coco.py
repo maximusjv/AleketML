@@ -4,12 +4,7 @@ import numpy as np
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 from contextlib import redirect_stdout
-import copy
 from ultralytics.engine.results import Results
-
-
-
-
 
 
 def stats_dict(stats: np.ndarray):

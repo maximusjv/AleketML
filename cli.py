@@ -87,8 +87,8 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"******USING DEVICE: {device}******")
     
-    from utils.infer import load_model, load_pathes, infer
-    from utils.consts import NUM_TO_CLASSES
+    from inference.infer import load_model, load_pathes, infer
+    from config.consts import NUM_TO_CLASSES
     from inference.predictor import Predictor
     from inference.models import FasterRCNN_ResNet50_FPN_v2, YOLO
     

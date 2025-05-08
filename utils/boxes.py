@@ -146,6 +146,7 @@ def vectorized_crop_patches(
                 for x1, y1, x2, y2 in zip(patches_int[:, 0], patches_int[:, 1], 
                                           patches_int[:, 2], patches_int[:, 3])
             ]
+
 class Patch:
     """
     A class representing a patch of an image.
@@ -197,9 +198,6 @@ class Patch:
         w, h = x2 - x1, y2 - y1
         o_w, o_h = w * (1 + offset), h * (1 + offset)
         return Patch(x1 - o_w, y1 - o_h, x2 + o_w, y2 + o_h)
-
-
-
 
 def crop_patches(
     image: Image.Image | np.ndarray, patches: list[Patch]
