@@ -90,9 +90,9 @@ def main():
     from utils.infer import load_model, load_pathes, infer
     from utils.consts import NUM_TO_CLASSES
     from inference.predictor import Predictor
-    from inference.models import FasterRCNN_ResNet50_FPN_v2
+    from inference.models import FasterRCNN_ResNet50_FPN_v2, YOLO
     
-    model = FasterRCNN_ResNet50_FPN_v2(args.model_path)
+    model = YOLO(args.model_path)
     pathes = load_pathes(args.images_path)
     
     print(f"******MODEL LOADED******")   

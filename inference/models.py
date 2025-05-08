@@ -61,6 +61,7 @@ class YOLO(Model):
             imgsz=imgsz,
             max_det=max_det,
             batch=batch,
+            verbose=False,
         )
         return [{
             "boxes": r.boxes.xyxy.clone(),

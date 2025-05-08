@@ -10,7 +10,7 @@ import torchvision.transforms.v2 as v2
 import torchvision.tv_tensors as tv_tensors
 
 from utils.consts import collate_fn
-from data.load import load_image_files, load_yolo_labels
+from data.load import load_image_files, load_yolo_labels, load_split_list
 
 def download_dataset(save_dir, patched_dataset_gdrive_id=""):
     """Downloads and extracts the dataset if it doesn't exist locally.
@@ -108,7 +108,7 @@ class AleketDataset(Dataset):
         """Returns the total number of images in the dataset."""
         return len(self.image_names)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
         """
         Retrieves an image and its corresponding target annotations.
 
@@ -148,6 +148,16 @@ class AleketDataset(Dataset):
         }
 
         return img, target
+    
+    
+    def load_split_indices(self, split_path: str):
+        split_path = os.path.normpath(split_path)
+        split_list = load_split_list(split_path)
+        split_indicies = [os.path.basename(path) for path in split_list]
+        split_indicies = self.to_indices(split_list)
+        return split_indicies
+        
+        
 
     def split_dataset(self, dataset_fraction, validation_fraction, generator):
         """Splits the dataset into train and validation sets.

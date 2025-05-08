@@ -218,7 +218,7 @@ def infer(
                 stats = stats_count(classes, pred)
 
                 _save_statistics(stats_writer, image_name, stats, classes)
-
+                stats_file.flush()
                 if save_annots:
                     _save_annotations(
                         image_name,
