@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from inference.models import Model
-from utils.box_utils import box_iou
+from utils.boxes import box_iou
 from utils.patches import make_patches
 
 import torchvision.transforms.v2.functional as F

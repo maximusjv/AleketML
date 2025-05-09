@@ -55,6 +55,7 @@ class AleketDataset(Dataset):
         """Converts a list of image names or indices to a list of indices."""
         if indices is None:
             return list(range(len(self.image_files)))
+        indices = [os.path.basename(i) if isinstance(i, str) else i for i in indices]
         return [self.image_to_ind[i] if isinstance(i, str) else i for i in indices]
 
     def to_names(self, indices=None):
@@ -109,7 +110,7 @@ class AleketDataset(Dataset):
         """Returns the total number of images in the dataset."""
         return len(self.image_names)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> tuple[tv_tensors.Image, dict[str, torch.Tensor]]:
         """
         Retrieves an image and its corresponding target annotations.
 
@@ -220,8 +221,8 @@ class AleketDataset(Dataset):
                 the validation DataLoader.
         """
 
-        train_dataset = Subset(self, self.to_indices(train_indices))
-        val_dataset = Subset(self, self.to_indices(val_indices))
+        train_dataset = Subset(self,train_indices)
+        val_dataset = Subset(self, val_indices)
 
         train_dataloader = DataLoader(
             train_dataset,

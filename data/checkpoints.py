@@ -9,6 +9,8 @@ from torchvision.transforms import v2
 from torchvision.models.detection import fasterrcnn_resnet50_fpn_v2
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
+from data.aleket_dataset import AleketDataset
+
 def get_default_model(device, trainable_backbone_layers=3):
     """
     Loads a pretrained Faster R-CNN ResNet-50 FPN model and modifies the classification head
@@ -117,8 +119,8 @@ class RunParams:
     def __init__(
         self,
         run_name="default",
-        train_set=None,
-        validation_set=None,
+        train_indices=None,
+        val_indices=None,
         batch_size=16,
         dataloader_workers=16,
         total_epochs=100,
@@ -129,10 +131,10 @@ class RunParams:
 
         if augmentation == "DEFAULT":
             augmentation = default_augmentation()
-        if train_set is None:
-            train_set = {}
-        if validation_set is None:
-            validation_set = {}
+        if train_indices is None:
+            train_indices = {}
+        if val_indices is None:
+            val_indices = {}
         if optimizer is None:
             optimizer = default_optimizer_params()
         if lr_scheduler is None:
@@ -146,8 +148,9 @@ class RunParams:
         self.lr_scheduler = lr_scheduler
 
         self.augmentation = augmentation
-        self.train_set = train_set
-        self.validation_set = validation_set
+        
+        self.train_indices = train_indices
+        self.val_indices = val_indices
 
     def load(self, path):
         """Loads parameters from a JSON file."""
@@ -160,7 +163,7 @@ class RunParams:
         with open(path, "w") as file:
             json.dump(self.__dict__, file, indent=1)
 
-    def parse(self, model, dataset):
+    def parse(self, model, dataset: AleketDataset):
         """
         Parses training parameters and sets up training components.
 
@@ -171,16 +174,9 @@ class RunParams:
         Returns:
             dict: A dictionary containing training components.
         """
-        train_names = []
-        val_names = []
-
-        for indices in self.train_set.values():
-            train_names.extend(indices)
-        for indices in self.validation_set.values():
-            val_names.extend(indices)
 
         train_dataloader, val_dataloader = dataset.create_dataloaders(
-            train_names, val_names, self.batch_size, self.dataloader_workers
+            self.train_indices, self.val_indices, self.batch_size, self.dataloader_workers
         )
 
         optimizer = default_optimizer(model, self.optimizer)
