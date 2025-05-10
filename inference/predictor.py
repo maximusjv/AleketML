@@ -1,5 +1,4 @@
-import PIL
-from PIL.Image import Image
+import PIL.Image
 
 
 import numpy as np
@@ -395,7 +394,7 @@ class Predictor:
                 Returns None if no predictions are generated.
         """
 
-        single = isinstance(images, (torch.Tensor, Image.Image, str))
+        single = isinstance(images, (torch.Tensor, Image, str))
         images = [images] if single else images
         result = {}
 
