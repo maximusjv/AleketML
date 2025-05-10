@@ -6,14 +6,13 @@ import numpy as np
 import torch
 
 from inference.models import Model
-from utils.boxes import box_iou
-from utils.patches import make_patches
+from utils.boxes import Patch, box_iou, make_patches
 
 import torchvision.transforms.v2.functional as F
 from PIL.Image import Image
 
 
-def wbf(boxes, scores, iou_threshold):
+def wbf(boxes: np.ndarray, scores: np.ndarray, iou_threshold: float):
     """
     Merges object detections based on Weighted Boxes Fusion (WBF).
 
@@ -39,7 +38,7 @@ def wbf(boxes, scores, iou_threshold):
         # 2. Find cluster
         for i, merged_box in enumerate(merged_boxes):
             # Calculate IoU between current box and merged box
-            iou = box_iou(current_box[np.newaxis, ...], merged_box[np.newaxis, ...])[
+            iou = box_iou(current_box[None, ...], merged_box[None, ...])[
                 0, 0
             ]
             if iou > iou_threshold:  # 3. Cluster Found
@@ -54,7 +53,7 @@ def wbf(boxes, scores, iou_threshold):
                 matched_scores = np.stack(cluster_scores[i])
 
                 # Merge boxes using weighted average based on scores
-                merged_boxes[i] = (matched_boxes * matched_scores[:, np.newaxis]).sum(
+                merged_boxes[i] = (matched_boxes * matched_scores[:, None]).sum(
                     axis=0
                 ) / matched_scores.sum()
                 merged_scores[i] = matched_scores.mean()  # Average the scores
@@ -74,7 +73,7 @@ def wbf(boxes, scores, iou_threshold):
     return np.stack(merged_boxes), np.stack(merged_scores)
 
 
-def batched_wbf(boxes, scores, labels, iou_threshold):
+def batched_wbf(boxes: np.ndarray, scores: np.ndarray, labels: np.ndarray, iou_threshold: float):
     """
     Merges object detections by classes based on Weighted Boxes Fusion (WBF).
 
@@ -166,13 +165,13 @@ def preprocess(size_factor, patch_size, patch_overlap, image):
 
     # 7. Extract patches
     patched_images = torch.stack(
-        [F.crop(image, y1, x1, y2 - y1, x2 - x1) for (x1, y1, x2, y2) in patches]
+        [F.crop(image, patch.ymin, patch.xmin, patch.height, patch.width) for patch in patches]
     )
     return patches, patched_images
 
 
 @torch.no_grad()
-def merge_patches(size_factor, patches, predictions):
+def merge_patches(size_factor, patches: list[Patch], predictions):
     """
     Merges predictions from image patches into a single prediction for the original image.
 
@@ -203,9 +202,8 @@ def merge_patches(size_factor, patches, predictions):
 
     # Adjust bounding boxes to original image coordinates
     for prediction, patch in zip(predictions, patches):
-        x1, y1, _, _ = patch  # Get top-left coordinates of the patch
-        prediction["boxes"][:, [0, 2]] += x1  # Adjust x-coordinates of boxes
-        prediction["boxes"][:, [1, 3]] += y1  # Adjust y-coordinates of boxes
+        prediction["boxes"][:, [0, 2]] += patch.xmin  # Adjust x-coordinates of boxes
+        prediction["boxes"][:, [1, 3]] += patch.ymin  # Adjust y-coordinates of boxes
         if len(prediction["boxes"]) != 0:
             boxes.extend(prediction["boxes"].numpy(force=True))
             labels.extend(prediction["labels"].numpy(force=True))

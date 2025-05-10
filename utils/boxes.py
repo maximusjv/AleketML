@@ -181,8 +181,15 @@ class Patch:
     
     @property
     def area(self) -> float:
-        x1, y1, x2, y2 = self.xyxy
-        return max(0, x2 - x1) * max(0, y2 - y1)
+        return max(0, self.width) * max(0, self.height)
+    
+    @property
+    def height(self) -> int:
+        return self.ymax - self.ymin
+    
+    @property
+    def width(self) -> int:
+        return self.xmax - self.xmin
 
     def clamp(self, other):
         relative_bbox = (
