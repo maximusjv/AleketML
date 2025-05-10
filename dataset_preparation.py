@@ -12,7 +12,7 @@ CONFIG = {
     "patch_overlap": 0.5,                   # Overlap between patches
     "crop_tolerance": 0.5,                  # Maximum allowed cropping ratio
     "erase_cropped": True,                  # Whether to erase cropped objects
-    "background_removal": 0.5,              # Percentage of background images to remove
+    "background_removal": 0.8,              # Percentage of background images to remove
     "classify_offset": 0.5,                 # Offset for classification crops
     "bg_iou_threshold": 0.1,                # IoU threshold for background crops,
     "classes": {1: "healthy", 2: "necrotic"}, # Classes names for classification

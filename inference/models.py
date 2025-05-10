@@ -5,25 +5,8 @@ from torchvision.transforms import v2
 from torchvision.models.detection import fasterrcnn_resnet50_fpn_v2
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
-def get_default_model(device, trainable_backbone_layers=3):
-    """
-    Loads a pretrained Faster R-CNN ResNet-50 FPN model and modifies the classification head
-    to accommodate the specified number of classes in dataset (3 - including background).
+from data.checkpoints import get_default_model
 
-    Args:
-        device (torch.device): The device to move the model to (e.g., 'cuda' or 'cpu').
-        trainable_backbone_layers (int, optional): Number of trainable backbone layers. Defaults to 3.
-
-    Returns:
-        FasterRCNN: The Faster R-CNN model with the modified classification head.
-    """
-    model = fasterrcnn_resnet50_fpn_v2(
-        weights="DEFAULT", trainable_backbone_layers=trainable_backbone_layers
-    )
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, 3)
-
-    return model.to(device)
 
 class Model:
     def predict(self, 
@@ -39,7 +22,7 @@ class YOLO(Model):
     def __init__(self, 
                  source):
         super().__init__()
-        self.yolo = mYOLO(
+        self.model = mYOLO(
             source,
             task="detect",
             verbose=False,
@@ -53,8 +36,8 @@ class YOLO(Model):
                 max_det: int,):
         batch = x.shape[0]
         imgsz = x.shape[-1]
-        self.yolo.to(x.device)
-        res = self.yolo.predict(
+        self.model.to(x.device)
+        res = self.model.predict(
             x,
             conf=score_thresh,
             iou=nms_iou_thresh,
@@ -73,11 +56,7 @@ class YOLO(Model):
 class FasterRCNN_ResNet50_FPN_v2(Model):
     def __init__(self,
                  source):
-        self.model = fasterrcnn_resnet50_fpn_v2(
-            weights="DEFAULT"
-        )
-        in_features = self.model.roi_heads.box_predictor.cls_score.in_features
-        self.model.roi_heads.box_predictor = FastRCNNPredictor(in_features, 3)
+        self.model = get_default_model("cpu", 0)
         self.model.load_state_dict(torch.load(source))
         
     @torch.no_grad()
